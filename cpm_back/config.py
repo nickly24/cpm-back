@@ -20,7 +20,7 @@ class Config:
     # MongoDB (тесты, сессии, рейтинги)
     MONGODB_URI = os.environ.get(
         'MONGODB_URI',
-        'mongodb://gen_user:I_OBNu~9oHF0(m@81.200.148.71:27017/default_db?authSource=admin&directConnection=true'
+        'mongodb://gen_user:%23oc9gu%3A%7D%7C_p4fu@109.73.202.73:27017/default_db?authSource=admin&directConnection=true'
     )
     MONGODB_DB_NAME = os.environ.get('MONGODB_DB_NAME', 'default_db')
 

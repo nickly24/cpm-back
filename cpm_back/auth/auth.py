@@ -17,35 +17,35 @@ def auth(username, password):
             cur.execute("SELECT * FROM students WHERE id = %s", (row[0][2],))
             data = cur.fetchone()
             return {
-                'sratus': True,
+                'status': True,
                 'res': {'role': 'student', 'id': data[0], 'full_name': data[1], 'group_id': data[2]}
             }
         if row[0][4] == 'proctor':
             cur.execute("SELECT * FROM proctors WHERE id = %s", (row[0][2],))
             data = cur.fetchone()
             return {
-                'sratus': True,
+                'status': True,
                 'res': {'role': 'proctor', 'id': data[0], 'full_name': data[1], 'group_id': data[2]}
             }
         if row[0][4] == 'examinator':
             cur.execute("SELECT * FROM examinators WHERE id = %s", (row[0][2],))
             data = cur.fetchone()
             return {
-                'sratus': True,
+                'status': True,
                 'res': {'role': 'examinator', 'id': data[0], 'full_name': data[1]}
             }
         if row[0][4] == 'admin':
             cur.execute("SELECT * FROM admins WHERE id = %s", (row[0][2],))
             data = cur.fetchone()
             return {
-                'sratus': True,
+                'status': True,
                 'res': {'role': 'admin', 'id': data[0], 'full_name': data[1]}
             }
         if row[0][4] == 'supervisor':
             cur.execute("SELECT * FROM supervisors WHERE id = %s", (row[0][2],))
             data = cur.fetchone()
             return {
-                'sratus': True,
+                'status': True,
                 'res': {'role': 'supervisor', 'id': data[0], 'full_name': data[1]}
             }
         return {'status': False}

@@ -15,7 +15,7 @@ def login():
     if not body_login or not body_password:
         return jsonify({'status': False, 'error': 'Логин и пароль обязательны'}), 400
     answer = auth(body_login, body_password)
-    if not answer.get('status') and not answer.get('sratus'):
+    if not answer.get('status'):
         return jsonify({'status': False, 'error': 'Неверный логин или пароль'}), 401
     user_data = answer.get('res', {})
     if not user_data:
