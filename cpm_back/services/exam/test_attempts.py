@@ -164,7 +164,25 @@ def start_attempt(student_id, test_id, is_practice=False):
                 "attempt": _serialize_attempt(existing, test, include_questions=True),
             }
         if existing.get("status") == STATUS_EXPIRED:
-            return {"success": False, "error": "attempt_expired"}
+            if get_test_session_by_student_and_test(student_id, test_id):
+                return {"success": False, "error": "attempt_expired"}
+            return {
+                "success": True,
+                "resumed": True,
+                "attempt": _serialize_attempt(existing, test, include_questions=True),
+            }
+
+    expired_pending = coll.find_one({
+        "studentId": student_id,
+        "testId": str(test_id),
+        "status": STATUS_EXPIRED,
+    })
+    if expired_pending and not get_test_session_by_student_and_test(student_id, test_id):
+        return {
+            "success": True,
+            "resumed": True,
+            "attempt": _serialize_attempt(expired_pending, test, include_questions=True),
+        }
 
     order, order_err = build_question_order(test)
     if order_err:
@@ -250,7 +268,41 @@ def get_active_attempt_summary(student_id, test_id):
         "remainingSeconds": a["remainingSeconds"],
         "answeredCount": a["answeredCount"],
         "totalQuestions": a["totalQuestions"],
+        "expired": False,
     }
+
+
+def get_expired_attempt_summary(student_id, test_id):
+    """Истекшая попытка, ожидающая мягкой отправки ответов."""
+    student_id = normalize_student_id(student_id)
+    if get_test_session_by_student_and_test(student_id, test_id):
+        return None
+
+    doc = _collection().find_one({
+        "studentId": student_id,
+        "testId": str(test_id),
+        "status": STATUS_EXPIRED,
+    })
+    if not doc:
+        return None
+
+    answers = doc.get("answers") or []
+    return {
+        "id": str(doc["_id"]),
+        "expiresAt": doc.get("expiresAt"),
+        "remainingSeconds": 0,
+        "answeredCount": len(answers),
+        "totalQuestions": len(doc.get("questionOrder") or []),
+        "expired": True,
+    }
+
+
+def get_pending_attempt_summary(student_id, test_id):
+    """Активная или истекшая (на отправку) попытка для списка."""
+    expired = get_expired_attempt_summary(student_id, test_id)
+    if expired:
+        return expired
+    return get_active_attempt_summary(student_id, test_id)
 
 
 def patch_answer(attempt_id, student_id, answer_data):
@@ -322,12 +374,19 @@ def submit_attempt(attempt_id, student_id):
         return {"success": False, "error": "practice_not_submittable"}
 
     doc = _mark_expired_if_needed(doc)
-    if doc.get("status") == STATUS_EXPIRED:
-        return {"success": False, "error": "time_expired"}
-    if doc.get("status") != STATUS_IN_PROGRESS:
+    status = doc.get("status")
+
+    if status == STATUS_SUBMITTED:
         return {"success": False, "error": "attempt_not_active"}
 
-    if remaining_seconds(doc.get("expiresAt")) <= 0:
+    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+        return {"success": False, "error": "attempt_not_active"}
+
+    if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
+        doc = _mark_expired_if_needed(doc)
+        status = doc.get("status")
+
+    if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
         return {"success": False, "error": "time_expired"}
 
     test = _get_test_document(doc.get("testId"))

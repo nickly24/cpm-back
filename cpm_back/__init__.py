@@ -64,7 +64,7 @@ def create_app():
     CORS(app, resources={
         r"/*": {
             "origins": config.CORS_ORIGINS,
-            "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+            "methods": ["GET", "POST", "PATCH", "OPTIONS", "PUT", "DELETE"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True,
             "expose_headers": ["Content-Type"]
@@ -79,7 +79,7 @@ def create_app():
         request.start_time = time.time()
         client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
         logger.info(f"[CPM-BACK REQUEST] {request.method} {request.path} | IP: {client_ip}")
-        if request.method in ('POST', 'PUT') and request.is_json:
+        if request.method in ('POST', 'PUT', 'PATCH') and request.is_json:
             try:
                 logger.info(f"[CPM-BACK BODY] {_safe_request_body()}")
             except Exception:

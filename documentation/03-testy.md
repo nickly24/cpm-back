@@ -1,5 +1,8 @@
 # 03. Тесты
 
+> **Для фронтенда:** актуальные эндпоинты, примеры запросов/ответов и сценарий attempt — в **[04-testy-api-dlya-fronta.md](./04-testy-api-dlya-fronta.md)**.  
+> Ниже — общая архитектура; блоки про `localStorage` и `POST /create-test-session` для студента **устарели** (см. attempt API).
+
 ## 1. Обзор
 
 Модуль тестов — **гибрид MySQL + MongoDB**:

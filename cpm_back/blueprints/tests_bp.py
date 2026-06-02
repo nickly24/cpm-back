@@ -31,7 +31,7 @@ from cpm_back.services.exam.get_external_tests import (
     get_all_external_tests_by_direction_for_admin,
 )
 from cpm_back.services.exam.session_review import build_session_review
-from cpm_back.services.exam.test_attempts import get_active_attempt_summary
+from cpm_back.services.exam.test_attempts import get_pending_attempt_summary
 
 tests_bp = Blueprint('tests', __name__, url_prefix='')
 
@@ -140,11 +140,15 @@ def tests_by_direction(direction, current_user=None):
     for t in (internal_tests + external_tests):
         item = _with_flags(t, completed_ids, role)
         if role == 'student' and student_id and not item.get('isExternal'):
-            active = get_active_attempt_summary(student_id, item.get('id'))
-            if active:
-                item['activeAttempt'] = active
-                item['canResume'] = active.get('remainingSeconds', 0) > 0
-                if item.get('canResume'):
+            pending = get_pending_attempt_summary(student_id, item.get('id'))
+            if pending:
+                item['activeAttempt'] = pending
+                item['canSubmitExpired'] = bool(pending.get('expired'))
+                item['canResume'] = (
+                    not pending.get('expired')
+                    and pending.get('remainingSeconds', 0) > 0
+                )
+                if item.get('canResume') or item.get('canSubmitExpired'):
                     item['canStart'] = False
         combined.append(item)
 
@@ -269,11 +273,15 @@ def tests_by_direction_with_sessions(direction, current_user=None):
     for t in (internal_tests + external_tests):
         item = _with_flags(t, completed_ids)
         if not item.get('isExternal'):
-            active = get_active_attempt_summary(student_id, item.get('id'))
-            if active:
-                item['activeAttempt'] = active
-                item['canResume'] = active.get('remainingSeconds', 0) > 0
-                if item.get('canResume'):
+            pending = get_pending_attempt_summary(student_id, item.get('id'))
+            if pending:
+                item['activeAttempt'] = pending
+                item['canSubmitExpired'] = bool(pending.get('expired'))
+                item['canResume'] = (
+                    not pending.get('expired')
+                    and pending.get('remainingSeconds', 0) > 0
+                )
+                if item.get('canResume') or item.get('canSubmitExpired'):
                     item['canStart'] = False
         combined.append(item)
     server_time_moscow = datetime.now(MOSCOW_TZ).isoformat()
