@@ -30,6 +30,8 @@ from cpm_back.services.exam.get_external_tests import (
     get_external_tests_with_results_by_student,
     get_all_external_tests_by_direction_for_admin,
 )
+from cpm_back.services.exam.session_review import build_session_review
+from cpm_back.services.exam.test_attempts import get_active_attempt_summary
 
 tests_bp = Blueprint('tests', __name__, url_prefix='')
 
@@ -134,7 +136,17 @@ def tests_by_direction(direction, current_user=None):
         except Exception:
             pass
 
-    combined = [_with_flags(t, completed_ids, role) for t in (internal_tests + external_tests)]
+    combined = []
+    for t in (internal_tests + external_tests):
+        item = _with_flags(t, completed_ids, role)
+        if role == 'student' and student_id and not item.get('isExternal'):
+            active = get_active_attempt_summary(student_id, item.get('id'))
+            if active:
+                item['activeAttempt'] = active
+                item['canResume'] = active.get('remainingSeconds', 0) > 0
+                if item.get('canResume'):
+                    item['canStart'] = False
+        combined.append(item)
 
     counts = {
         "all": len(combined),
@@ -253,14 +265,23 @@ def tests_by_direction_with_sessions(direction, current_user=None):
         except Exception:
             pass
 
-    combined = [_with_flags(t, completed_ids) for t in (internal_tests + external_tests)]
-    # Время по Москве для проверки доступности на фронте (чтобы не зависеть от времени на устройстве)
+    combined = []
+    for t in (internal_tests + external_tests):
+        item = _with_flags(t, completed_ids)
+        if not item.get('isExternal'):
+            active = get_active_attempt_summary(student_id, item.get('id'))
+            if active:
+                item['activeAttempt'] = active
+                item['canResume'] = active.get('remainingSeconds', 0) > 0
+                if item.get('canResume'):
+                    item['canStart'] = False
+        combined.append(item)
     server_time_moscow = datetime.now(MOSCOW_TZ).isoformat()
     return jsonify({"tests": combined, "sessions": sessions, "serverTimeMoscow": server_time_moscow})
 
 
 @tests_bp.route('/test/<test_id>', methods=['GET'])
-@require_auth
+@require_role('admin')
 def test_by_id(test_id, current_user=None):
     test = get_test_by_id(test_id)
     if test:
@@ -328,6 +349,12 @@ def toggle_visibility(test_id, current_user=None):
 @tests_bp.route('/create-test-session', methods=['POST'])
 @require_self_or_role('studentId', 'admin')
 def create_session(current_user=None):
+    if current_user.get('role') == 'student':
+        return jsonify({
+            'success': False,
+            'error': 'deprecated',
+            'message': 'Используйте POST /test-attempt/start и POST /test-attempt/<id>/submit',
+        }), 410
     session_data = request.get_json()
     for field in ["studentId", "testId", "testTitle", "answers"]:
         if field not in session_data:
@@ -395,3 +422,18 @@ def session_by_student_and_test(student_id, test_id, current_user=None):
     if session:
         return jsonify(session)
     return jsonify({"error": "Test session not found"}), 404
+
+
+@tests_bp.route('/test-session/<session_id>/review', methods=['GET'])
+@require_auth
+def session_review(session_id, current_user=None):
+    session = get_test_session_by_id(session_id)
+    if not session:
+        return jsonify({'success': False, 'error': 'session_not_found'}), 404
+    role = current_user.get('role')
+    if role != 'admin' and str(session.get('studentId')) != str(current_user.get('id')):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    result = build_session_review(session_id, role)
+    if not result.get('success'):
+        return jsonify(result), 404
+    return jsonify(result)

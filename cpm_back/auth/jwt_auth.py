@@ -9,7 +9,7 @@ from flask import request, jsonify, current_app
 
 
 def _get_secret():
-    return current_app.config.get('JWT_SECRET_KEY', 'dev-secret-key-cpm-lms-2025-change-in-production')
+    return current_app.config.get('JWT_SECRET_KEY', 'change-me-local-jwt-secret')
 
 
 def _get_expiration_hours():

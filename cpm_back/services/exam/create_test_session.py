@@ -3,6 +3,7 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from cpm_back.db.mongo import get_mongo_db
+from cpm_back.services.exam import scoring
 
 _index_ensured = False
 
@@ -23,45 +24,73 @@ def _ensure_unique_index():
         print(f"Ошибка при создании индекса: {e}")
 
 
-def create_test_session(student_id, test_id, test_title, answers, score=None, time_spent_minutes=None):
+def _normalize_student_id(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def insert_completed_test_session(
+    student_id,
+    test_id,
+    test_title,
+    answers,
+    score,
+    time_spent_minutes=None,
+    question_order=None,
+):
+    """Финальная сдача (из attempt submit или admin)."""
     _ensure_unique_index()
+    student_id = _normalize_student_id(student_id)
     db = get_mongo_db()
-    test_sessions_collection = db.test_sessions
-    existing_session = test_sessions_collection.find_one({"studentId": student_id, "testId": test_id})
-    if existing_session:
+    coll = db.test_sessions
+    existing = coll.find_one({"studentId": {"$in": [student_id, str(student_id)]}, "testId": str(test_id)})
+    if existing:
         return {
             "success": False,
-            "error": "Тест уже сдан",
-            "message": "Для данного студента и теста уже существует завершенная сессия",
-            "existingSessionId": str(existing_session["_id"]),
-            "existingScore": existing_session.get("score"),
-            "completedAt": existing_session.get("completedAt")
+            "error": "test_already_completed",
+            "existingSessionId": str(existing["_id"]),
+            "existingScore": existing.get("score"),
+            "completedAt": existing.get("completedAt"),
         }
-    if score is None:
-        score = sum(int(answer.get("points", 0)) for answer in answers)
-    test_session = {
+    doc = {
         "studentId": student_id,
-        "testId": test_id,
+        "testId": str(test_id),
         "testTitle": test_title,
         "answers": answers,
         "score": score,
         "timeSpentMinutes": time_spent_minutes,
         "completedAt": datetime.utcnow().isoformat() + "Z",
-        "createdAt": datetime.utcnow().isoformat() + "Z"
+        "createdAt": datetime.utcnow().isoformat() + "Z",
     }
+    if question_order is not None:
+        doc["questionOrder"] = question_order
     try:
-        result = test_sessions_collection.insert_one(test_session)
-        return {"success": True, "sessionId": str(result.inserted_id), "message": "Тест-сессия успешно создана"}
+        result = coll.insert_one(doc)
+        return {"success": True, "sessionId": str(result.inserted_id)}
     except DuplicateKeyError:
-        existing_session = test_sessions_collection.find_one({"studentId": student_id, "testId": test_id})
+        existing = coll.find_one({"studentId": student_id, "testId": str(test_id)})
         return {
             "success": False,
-            "error": "Тест уже сдан",
-            "message": "Обнаружено дублирование на уровне базы данных",
-            "existingSessionId": str(existing_session["_id"]) if existing_session else None,
-            "existingScore": existing_session.get("score") if existing_session else None,
-            "completedAt": existing_session.get("completedAt") if existing_session else None
+            "error": "test_already_completed",
+            "existingSessionId": str(existing["_id"]) if existing else None,
+            "existingScore": existing.get("score") if existing else None,
+            "completedAt": existing.get("completedAt") if existing else None,
         }
+
+
+def create_test_session(student_id, test_id, test_title, answers, score=None, time_spent_minutes=None):
+    return insert_completed_test_session(
+        student_id=student_id,
+        test_id=test_id,
+        test_title=test_title,
+        answers=answers,
+        score=score if score is not None else sum(int(a.get("points", 0)) for a in answers),
+        time_spent_minutes=time_spent_minutes,
+    )
 
 
 def get_test_session_by_id(session_id):
@@ -71,16 +100,6 @@ def get_test_session_by_id(session_id):
         session["_id"] = str(session["_id"])
         return session
     return None
-
-
-def _normalize_student_id(value):
-    """В MongoDB studentId может быть int (из JSON); из URL приходит строка — приводим к int при возможности."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return value
 
 
 def get_test_sessions_by_student(student_id):
@@ -184,62 +203,12 @@ def get_test_session_by_student_and_test(student_id, test_id):
     return None
 
 
-def _normalize_text(value):
-    return "" if value is None else str(value).strip().lower()
-
-
-def _score_single(selected_answer_id, question):
-    correct_ids = {a.get("id") for a in question.get("answers", []) if a.get("isCorrect")}
-    is_correct = selected_answer_id in correct_ids
-    points = int(question.get("points", 0)) if is_correct else 0
-    return points, is_correct
-
-
-def _score_multiple(selected_answer_ids, question):
-    total_available = int(question.get("points", 0))
-    selected_set = set(selected_answer_ids or [])
-    all_correct_ids = {a.get("id") for a in question.get("answers", []) if a.get("isCorrect")}
-    all_incorrect_ids = {a.get("id") for a in question.get("answers", []) if not a.get("isCorrect")}
-    if selected_set.issuperset(all_correct_ids) and selected_set.isdisjoint(all_incorrect_ids):
-        return total_available, True
-    return 0, False
-
-
-def _score_text(text_answer, question):
-    normalized = _normalize_text(text_answer)
-    correct_list = [_normalize_text(val) for val in (question.get("correctAnswers") or [])]
-    is_correct = normalized in correct_list if correct_list else False
-    points = int(question.get("points", 0)) if is_correct else 0
-    return points, is_correct
-
-
 def _recompute_answer(existing_answer, question):
-    a_type = existing_answer.get("type") or question.get("type")
-    updated = dict(existing_answer)
-    if a_type == "single":
-        pts, ok = _score_single(existing_answer.get("selectedAnswer"), question)
-    elif a_type == "multiple":
-        pts, ok = _score_multiple(existing_answer.get("selectedAnswers", []), question)
-    elif a_type == "text":
-        pts, ok = _score_text(existing_answer.get("textAnswer"), question)
-    else:
-        pts, ok = 0, False
-    updated["type"] = a_type
-    updated["points"] = int(pts)
-    updated["isCorrect"] = bool(ok)
-    return updated
+    return scoring.recompute_answer(existing_answer, question)
 
 
 def _placeholder_answer_for_new_question(question):
-    a_type = question.get("type")
-    base = {"questionId": question.get("questionId"), "type": a_type, "points": 0, "isCorrect": False}
-    if a_type == "single":
-        base["selectedAnswer"] = None
-    elif a_type == "multiple":
-        base["selectedAnswers"] = []
-    elif a_type == "text":
-        base["textAnswer"] = ""
-    return base
+    return scoring.placeholder_answer_for_new_question(question)
 
 
 def recalc_test_sessions(test_id):

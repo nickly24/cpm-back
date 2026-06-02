@@ -1,4 +1,5 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
+from werkzeug.security import generate_password_hash
 import random
 import string
 
@@ -68,7 +69,7 @@ def add_student(full_name, class_number, tg_name=None):
         INSERT INTO auth_users (username, password, ref_id, role) 
         VALUES (%s, %s, %s, %s)
         """
-        cursor.execute(insert_auth_query, (login, password, student_id, 'student'))
+        cursor.execute(insert_auth_query, (login, generate_password_hash(password), student_id, 'student'))
         
         # Подтверждаем транзакцию
         connection.commit()

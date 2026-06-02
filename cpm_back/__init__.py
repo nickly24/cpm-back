@@ -26,6 +26,7 @@ from .blueprints import (
     external_tests_bp,
     ratings_bp,
 )
+from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +34,22 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+SENSITIVE_BODY_KEYS = {'password', 'token', 'auth_token', 'authorization'}
+
+
+def _safe_request_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return '<non-object-json>'
+
+    masked = {}
+    for key, value in data.items():
+        if key.lower() in SENSITIVE_BODY_KEYS:
+            masked[key] = '***'
+        else:
+            masked[key] = value
+    return str(masked)[:500]
 
 
 def create_app():
@@ -64,8 +81,7 @@ def create_app():
         logger.info(f"[CPM-BACK REQUEST] {request.method} {request.path} | IP: {client_ip}")
         if request.method in ('POST', 'PUT') and request.is_json:
             try:
-                body = str(request.get_json())[:500]
-                logger.info(f"[CPM-BACK BODY] {body}")
+                logger.info(f"[CPM-BACK BODY] {_safe_request_body()}")
             except Exception:
                 pass
 
@@ -99,6 +115,7 @@ def create_app():
     app.register_blueprint(cards_bp)
     app.register_blueprint(directions_bp)
     app.register_blueprint(tests_bp)
+    app.register_blueprint(test_attempts_bp)
     app.register_blueprint(exams_bp)
     app.register_blueprint(external_tests_bp)
     app.register_blueprint(ratings_bp)

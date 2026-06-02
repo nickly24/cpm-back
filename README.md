@@ -22,14 +22,14 @@ gunicorn -w 4 -b 0.0.0.0:80 "cpm_back:create_app()"
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `MYSQL_HOST` | Хост MySQL | 147.45.138.77 |
+| `MYSQL_HOST` | Хост MySQL | 127.0.0.1 |
 | `MYSQL_PORT` | Порт MySQL | 3306 |
-| `MYSQL_USER` | Пользователь MySQL | minishep |
+| `MYSQL_USER` | Пользователь MySQL | root |
 | `MYSQL_PASSWORD` | Пароль MySQL | — |
-| `MYSQL_DATABASE` | База MySQL | minishep |
-| `MONGODB_URI` | URI MongoDB | (см. config.py) |
-| `MONGODB_DB_NAME` | Имя БД MongoDB | default_db |
-| `JWT_SECRET_KEY` | Секрет для JWT | (dev-ключ) |
+| `MYSQL_DATABASE` | База MySQL | cpm |
+| `MONGODB_URI` | URI MongoDB | mongodb://127.0.0.1:27017/cpm |
+| `MONGODB_DB_NAME` | Имя БД MongoDB | cpm |
+| `JWT_SECRET_KEY` | Секрет для JWT | change-me-local-jwt-secret |
 | `JWT_EXPIRATION_HOURS` | Срок жизни токена (часы) | 24 |
 | `FLASK_RUN_HOST` | Хост запуска (если не через main.py) | 0.0.0.0 |
 | `FLASK_RUN_PORT` | Порт (в main.py по умолчанию 80) | 80 |

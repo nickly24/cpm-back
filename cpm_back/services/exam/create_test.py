@@ -25,11 +25,18 @@ def delete_test(test_id):
     db = get_mongo_db()
     tests_collection = db.tests
     test_sessions_collection = db.test_sessions
+    attempts_result = db.test_attempts.delete_many({"testId": str(test_id)})
+    attempts_deleted = attempts_result.deleted_count
     sessions_result = test_sessions_collection.delete_many({"testId": test_id})
     sessions_deleted = sessions_result.deleted_count
     test_result = tests_collection.delete_one({"_id": ObjectId(test_id)})
     test_deleted = test_result.deleted_count
-    return {"test_deleted": test_deleted > 0, "sessions_deleted": sessions_deleted, "total_deleted": test_deleted + sessions_deleted}
+    return {
+        "test_deleted": test_deleted > 0,
+        "sessions_deleted": sessions_deleted,
+        "attempts_deleted": attempts_deleted,
+        "total_deleted": test_deleted + sessions_deleted + attempts_deleted,
+    }
 
 
 def get_test_by_id(test_id):

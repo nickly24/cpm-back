@@ -1,53 +1,59 @@
 """
 Проверка логина/пароля по MySQL (auth_users + таблицы по ролям).
 """
+from werkzeug.security import check_password_hash
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
+
+
+ROLE_TABLES = {
+    'student': 'students',
+    'proctor': 'proctors',
+    'examinator': 'examinators',
+    'admin': 'admins',
+    'supervisor': 'supervisors',
+}
+
+
+def _password_matches(stored_password, candidate_password):
+    if not stored_password:
+        return False
+    try:
+        if check_password_hash(stored_password, candidate_password):
+            return True
+    except ValueError:
+        pass
+    # Совместимость со старыми plaintext-паролями в auth_users.
+    return stored_password == candidate_password
 
 
 def auth(username, password):
     cnx = None
     try:
         cnx = get_db_connection()
-        cur = cnx.cursor()
-        cur.execute("SELECT * FROM auth_users WHERE username = %s AND password = %s", (username, password))
-        row = cur.fetchall()
-        if len(row) == 0:
+        cur = cnx.cursor(dictionary=True)
+        cur.execute(
+            "SELECT username, password, ref_id, role FROM auth_users WHERE username = %s LIMIT 1",
+            (username,)
+        )
+        user_row = cur.fetchone()
+        if not user_row or not _password_matches(user_row.get('password'), password):
             return {'status': False}
-        if row[0][4] == 'student':
-            cur.execute("SELECT * FROM students WHERE id = %s", (row[0][2],))
-            data = cur.fetchone()
-            return {
-                'status': True,
-                'res': {'role': 'student', 'id': data[0], 'full_name': data[1], 'group_id': data[2]}
-            }
-        if row[0][4] == 'proctor':
-            cur.execute("SELECT * FROM proctors WHERE id = %s", (row[0][2],))
-            data = cur.fetchone()
-            return {
-                'status': True,
-                'res': {'role': 'proctor', 'id': data[0], 'full_name': data[1], 'group_id': data[2]}
-            }
-        if row[0][4] == 'examinator':
-            cur.execute("SELECT * FROM examinators WHERE id = %s", (row[0][2],))
-            data = cur.fetchone()
-            return {
-                'status': True,
-                'res': {'role': 'examinator', 'id': data[0], 'full_name': data[1]}
-            }
-        if row[0][4] == 'admin':
-            cur.execute("SELECT * FROM admins WHERE id = %s", (row[0][2],))
-            data = cur.fetchone()
-            return {
-                'status': True,
-                'res': {'role': 'admin', 'id': data[0], 'full_name': data[1]}
-            }
-        if row[0][4] == 'supervisor':
-            cur.execute("SELECT * FROM supervisors WHERE id = %s", (row[0][2],))
-            data = cur.fetchone()
-            return {
-                'status': True,
-                'res': {'role': 'supervisor', 'id': data[0], 'full_name': data[1]}
-            }
+
+        role = user_row.get('role')
+        table = ROLE_TABLES.get(role)
+        if not table:
+            return {'status': False}
+
+        cur.execute(f"SELECT * FROM {table} WHERE id = %s", (user_row.get('ref_id'),))
+        data = cur.fetchone()
+        if not data:
+            return {'status': False}
+
+        result = {'role': role, 'id': data.get('id'), 'full_name': data.get('full_name')}
+        if role in ('student', 'proctor'):
+            result['group_id'] = data.get('group_id')
+        return {'status': True, 'res': result}
+
         return {'status': False}
     except Exception as e:
         print(f"Ошибка в auth: {str(e)}")
