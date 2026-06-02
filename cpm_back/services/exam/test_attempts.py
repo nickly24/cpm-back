@@ -130,17 +130,96 @@ def _mark_expired_if_needed(doc):
     return doc
 
 
+def _insert_attempt_doc(coll, doc, test):
+    try:
+        result = coll.insert_one(doc)
+    except DuplicateKeyError:
+        existing = coll.find_one({
+            "studentId": doc["studentId"],
+            "testId": doc["testId"],
+            "status": STATUS_IN_PROGRESS,
+        })
+        if existing:
+            return {
+                "success": True,
+                "resumed": True,
+                "attempt": _serialize_attempt(existing, test, include_questions=True),
+            }
+        return {"success": False, "error": "attempt_conflict"}
+
+    doc["_id"] = result.inserted_id
+    return {
+        "success": True,
+        "resumed": False,
+        "attempt": _serialize_attempt(doc, test, include_questions=True),
+    }
+
+
+def _resume_pending_attempt(coll, student_id, test_id, test, is_practice):
+    filters = {
+        "studentId": student_id,
+        "testId": str(test_id),
+        "isPractice": bool(is_practice),
+    }
+    existing = coll.find_one({**filters, "status": STATUS_IN_PROGRESS})
+    if existing:
+        existing = _mark_expired_if_needed(existing)
+        if existing.get("status") in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+            return {
+                "success": True,
+                "resumed": True,
+                "attempt": _serialize_attempt(existing, test, include_questions=True),
+            }
+
+    expired = coll.find_one({**filters, "status": STATUS_EXPIRED})
+    if expired:
+        return {
+            "success": True,
+            "resumed": True,
+            "attempt": _serialize_attempt(expired, test, include_questions=True),
+        }
+    return None
+
+
 def start_attempt(student_id, test_id, is_practice=False):
     student_id = normalize_student_id(student_id)
     if student_id is None:
         return {"success": False, "error": "invalid_student_id"}
 
-    if is_practice:
-        return {"success": False, "error": "practice_use_frontend_only", "message": "Тренировка пока без server attempt"}
-
     test = _get_test_document(test_id)
     if not test:
         return {"success": False, "error": "test_not_found"}
+
+    coll = _collection()
+
+    if is_practice:
+        if not get_test_session_by_student_and_test(student_id, test_id):
+            return {"success": False, "error": "test_not_completed"}
+
+        resumed = _resume_pending_attempt(coll, student_id, test_id, test, True)
+        if resumed:
+            return resumed
+
+        order, order_err = build_question_order(test)
+        if order_err:
+            return {"success": False, "error": order_err}
+
+        started_at = now_utc_iso()
+        time_limit = int(test.get("timeLimitMinutes") or 0)
+        expires_at = compute_expires_at(started_at, time_limit)
+
+        doc = {
+            "studentId": student_id,
+            "testId": str(test_id),
+            "status": STATUS_IN_PROGRESS,
+            "isPractice": True,
+            "startedAt": started_at,
+            "expiresAt": expires_at,
+            "questionOrder": order,
+            "answers": [],
+            "createdAt": started_at,
+        }
+        return _insert_attempt_doc(coll, doc, test)
 
     open_ok, window_err = is_test_window_open(test)
     if not open_ok:
@@ -149,11 +228,11 @@ def start_attempt(student_id, test_id, is_practice=False):
     if get_test_session_by_student_and_test(student_id, test_id):
         return {"success": False, "error": "test_already_completed"}
 
-    coll = _collection()
     existing = coll.find_one({
         "studentId": student_id,
         "testId": str(test_id),
         "status": STATUS_IN_PROGRESS,
+        "isPractice": False,
     })
     if existing:
         existing = _mark_expired_if_needed(existing)
@@ -176,6 +255,7 @@ def start_attempt(student_id, test_id, is_practice=False):
         "studentId": student_id,
         "testId": str(test_id),
         "status": STATUS_EXPIRED,
+        "isPractice": False,
     })
     if expired_pending and not get_test_session_by_student_and_test(student_id, test_id):
         return {
@@ -203,28 +283,7 @@ def start_attempt(student_id, test_id, is_practice=False):
         "answers": [],
         "createdAt": started_at,
     }
-    try:
-        result = coll.insert_one(doc)
-    except DuplicateKeyError:
-        existing = coll.find_one({
-            "studentId": student_id,
-            "testId": str(test_id),
-            "status": STATUS_IN_PROGRESS,
-        })
-        if existing:
-            return {
-                "success": True,
-                "resumed": True,
-                "attempt": _serialize_attempt(existing, test, include_questions=True),
-            }
-        return {"success": False, "error": "attempt_conflict"}
-
-    doc["_id"] = result.inserted_id
-    return {
-        "success": True,
-        "resumed": False,
-        "attempt": _serialize_attempt(doc, test, include_questions=True),
-    }
+    return _insert_attempt_doc(coll, doc, test)
 
 
 def get_attempt_for_student(attempt_id, student_id):
@@ -246,6 +305,7 @@ def get_active_attempt(student_id, test_id):
         "studentId": student_id,
         "testId": str(test_id),
         "status": STATUS_IN_PROGRESS,
+        "isPractice": False,
     })
     if not doc:
         return {"success": True, "attempt": None}
@@ -282,6 +342,7 @@ def get_expired_attempt_summary(student_id, test_id):
         "studentId": student_id,
         "testId": str(test_id),
         "status": STATUS_EXPIRED,
+        "isPractice": False,
     })
     if not doc:
         return None
@@ -370,9 +431,7 @@ def submit_attempt(attempt_id, student_id):
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
 
-    if doc.get("isPractice"):
-        return {"success": False, "error": "practice_not_submittable"}
-
+    is_practice = bool(doc.get("isPractice"))
     doc = _mark_expired_if_needed(doc)
     status = doc.get("status")
 
@@ -393,13 +452,6 @@ def submit_attempt(attempt_id, student_id):
     if not test:
         return {"success": False, "error": "test_not_found"}
 
-    open_ok, window_err = is_test_window_open(test)
-    if not open_ok:
-        return {"success": False, "error": window_err}
-
-    if get_test_session_by_student_and_test(student_id, doc.get("testId")):
-        return {"success": False, "error": "test_already_completed"}
-
     questions = test.get("questions") or []
     order = doc.get("questionOrder") or []
     raw_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
@@ -411,6 +463,44 @@ def submit_attempt(attempt_id, student_id):
     time_spent = 1
     if started:
         time_spent = max(1, int((completed - started).total_seconds() // 60) or 1)
+
+    correct_answers = sum(1 for answer in scored_answers if answer.get("isCorrect"))
+    total_questions = len(order)
+    accuracy = round((correct_answers / total_questions) * 100) if total_questions else 0
+    stats = {
+        "correctAnswers": correct_answers,
+        "totalQuestions": total_questions,
+        "accuracy": accuracy,
+        "totalPoints": sum(int(a.get("points", 0)) for a in scored_answers),
+    }
+
+    if is_practice:
+        _collection().update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "status": STATUS_SUBMITTED,
+                    "submittedAt": now_utc_iso(),
+                    "answers": scored_answers,
+                    "practiceScore": score,
+                }
+            },
+        )
+        return {
+            "success": True,
+            "isPractice": True,
+            "score": score,
+            "answers": scored_answers,
+            "timeSpentMinutes": time_spent,
+            "stats": stats,
+        }
+
+    open_ok, window_err = is_test_window_open(test)
+    if not open_ok:
+        return {"success": False, "error": window_err}
+
+    if get_test_session_by_student_and_test(student_id, doc.get("testId")):
+        return {"success": False, "error": "test_already_completed"}
 
     session_result = insert_completed_test_session(
         student_id=student_id,
@@ -439,4 +529,6 @@ def submit_attempt(attempt_id, student_id):
         "sessionId": session_result.get("sessionId"),
         "score": score,
         "answers": scored_answers,
+        "timeSpentMinutes": time_spent,
+        "stats": stats,
     }

@@ -21,13 +21,16 @@ def attempt_start(current_user=None):
     test_id = data.get('testId')
     if not test_id:
         return jsonify({'success': False, 'error': 'testId_required'}), 400
-    result = start_attempt(current_user.get('id'), test_id)
+    is_practice = bool(data.get('isPractice') or data.get('practice'))
+    result = start_attempt(current_user.get('id'), test_id, is_practice=is_practice)
     if not result.get('success'):
         code = 409 if result.get('error') == 'test_already_completed' else 403
         if result.get('error') in ('test_not_found', 'invalid_student_id', 'test_has_no_questions'):
             code = 400 if result.get('error') != 'test_not_found' else 404
         if result.get('error') == 'test_not_found':
             code = 404
+        if result.get('error') == 'test_not_completed':
+            code = 403
         return jsonify(result), code
     return jsonify(result)
 
