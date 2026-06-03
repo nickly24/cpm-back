@@ -44,8 +44,17 @@ def set_attendance(class_day_id, student_id, attendance_type_id, zap_id=None):
             """,
             (class_day_id, student_id, attendance_type_id, zap_id),
         )
+        affected = cursor.rowcount
         connection.commit()
-        return {"status": True}
+
+        if affected == 1:
+            action = "created"
+        elif affected == 2:
+            action = "updated"
+        else:
+            action = "unchanged"
+
+        return {"status": True, "action": action}
     except Exception as err:
         if connection:
             connection.rollback()

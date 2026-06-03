@@ -26,6 +26,21 @@ def create_class_day(date_str, comment=None):
             connection.rollback()
         err_msg = str(err)
         if "Duplicate entry" in err_msg or "uq_class_days_date" in err_msg:
+            try:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT id FROM class_days WHERE date = %s",
+                    (date_str,),
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    return {
+                        "status": True,
+                        "id": existing[0],
+                        "already_existed": True,
+                    }
+            except Exception:
+                pass
             return {"status": False, "error": "День занятий на эту дату уже существует"}
         return {"status": False, "error": err_msg}
     finally:
