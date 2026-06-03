@@ -126,9 +126,18 @@ def get_test_sessions_by_student(student_id):
 
 def get_test_sessions_by_test(test_id):
     db = get_mongo_db()
+    test_id_str = str(test_id)
     sessions = db.test_sessions.find(
-        {"testId": test_id},
-        {"_id": 1, "studentId": 1, "testTitle": 1, "score": 1, "completedAt": 1, "timeSpentMinutes": 1}
+        {"$or": [{"testId": test_id_str}, {"testId": test_id}]},
+        {
+            "_id": 1,
+            "studentId": 1,
+            "testTitle": 1,
+            "score": 1,
+            "completedAt": 1,
+            "timeSpentMinutes": 1,
+            "answers": 1,
+        },
     ).sort("completedAt", -1)
     return [{
         "id": str(s["_id"]),
@@ -136,8 +145,18 @@ def get_test_sessions_by_test(test_id):
         "testTitle": s["testTitle"],
         "score": s.get("score"),
         "completedAt": s["completedAt"],
-        "timeSpentMinutes": s.get("timeSpentMinutes")
+        "timeSpentMinutes": s.get("timeSpentMinutes"),
+        "answersCount": len(s.get("answers") or []),
     } for s in sessions]
+
+
+def delete_test_session_by_id(session_id):
+    db = get_mongo_db()
+    try:
+        result = db.test_sessions.delete_one({"_id": ObjectId(session_id)})
+        return result.deleted_count > 0
+    except Exception:
+        return False
 
 
 def get_test_session_stats(session_id):

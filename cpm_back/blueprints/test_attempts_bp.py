@@ -9,6 +9,11 @@ from cpm_back.services.exam.test_attempts import (
     get_active_attempt,
     patch_answer,
     submit_attempt,
+    get_attempt_admin_detail,
+)
+from cpm_back.services.exam.test_admin_monitoring import (
+    delete_test_attempt_admin,
+    get_test_attempt_admin_detail,
 )
 
 test_attempts_bp = Blueprint('test_attempts', __name__, url_prefix='')
@@ -89,4 +94,23 @@ def attempt_submit(attempt_id, current_user=None):
         if err in ('test_not_started', 'test_ended'):
             return jsonify(result), 403
         return jsonify(result), 400 if err != 'attempt_not_found' else 404
+    return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/admin', methods=['GET'])
+@require_role('admin')
+def admin_attempt_detail(attempt_id, current_user=None):
+    result = get_test_attempt_admin_detail(attempt_id)
+    if not result.get('success'):
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>', methods=['DELETE'])
+@require_role('admin')
+def admin_delete_attempt(attempt_id, current_user=None):
+    result = delete_test_attempt_admin(attempt_id)
+    if not result.get('success'):
+        code = 404 if result.get('error') in ('attempt_not_found',) else 500
+        return jsonify(result), code
     return jsonify(result)

@@ -33,6 +33,12 @@ from cpm_back.services.exam.get_external_tests import (
 )
 from cpm_back.services.exam.session_review import build_session_review
 from cpm_back.services.exam.test_attempts import get_pending_attempt_summary
+from cpm_back.services.exam.test_admin_monitoring import (
+    delete_test_session_admin,
+    get_test_session_admin_detail,
+    list_test_attempts_admin,
+    list_test_sessions_admin,
+)
 
 tests_bp = Blueprint('tests', __name__, url_prefix='')
 
@@ -423,10 +429,51 @@ def sessions_by_student(student_id, current_user=None):
     return jsonify(get_test_sessions_by_student(student_id))
 
 
+@tests_bp.route('/test/<test_id>/sessions', methods=['GET'])
+@require_role('admin')
+def admin_sessions_by_test(test_id, current_user=None):
+    if not get_test_by_id(test_id):
+        return jsonify({"error": "Test not found"}), 404
+    return jsonify(list_test_sessions_admin(test_id))
+
+
 @tests_bp.route('/test-sessions/test/<test_id>', methods=['GET'])
 @require_role('admin')
 def sessions_by_test(test_id, current_user=None):
-    return jsonify(get_test_sessions_by_test(test_id))
+    """Обратная совместимость — то же, что GET /test/<id>/sessions."""
+    if not get_test_by_id(test_id):
+        return jsonify({"error": "Test not found"}), 404
+    return jsonify(list_test_sessions_admin(test_id))
+
+
+@tests_bp.route('/test/<test_id>/attempts', methods=['GET'])
+@require_role('admin')
+def admin_attempts_by_test(test_id, current_user=None):
+    status = request.args.get('status', 'active')
+    result = list_test_attempts_admin(test_id, status_filter=status)
+    if not result.get('success'):
+        code = 404 if result.get('error') == 'test_not_found' else 400
+        return jsonify(result), code
+    return jsonify(result)
+
+
+@tests_bp.route('/test-session/<session_id>/admin', methods=['GET'])
+@require_role('admin')
+def admin_session_detail(session_id, current_user=None):
+    result = get_test_session_admin_detail(session_id)
+    if not result.get('success'):
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@tests_bp.route('/test-session/<session_id>', methods=['DELETE'])
+@require_role('admin')
+def admin_delete_session(session_id, current_user=None):
+    result = delete_test_session_admin(session_id)
+    if not result.get('success'):
+        code = 404 if result.get('error') == 'session_not_found' else 500
+        return jsonify(result), code
+    return jsonify(result)
 
 
 @tests_bp.route('/test-session/<session_id>/stats', methods=['GET'])

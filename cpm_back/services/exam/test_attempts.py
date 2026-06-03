@@ -532,3 +532,149 @@ def submit_attempt(attempt_id, student_id):
         "timeSpentMinutes": time_spent,
         "stats": stats,
     }
+
+
+def _parse_status_filter(status_filter):
+    if not status_filter or status_filter in ("active", "pending"):
+        return [STATUS_IN_PROGRESS, STATUS_EXPIRED]
+    if status_filter == "all":
+        return [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_SUBMITTED]
+    parts = [p.strip() for p in str(status_filter).split(",") if p.strip()]
+    allowed = {STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_SUBMITTED}
+    selected = [p for p in parts if p in allowed]
+    return selected or [STATUS_IN_PROGRESS, STATUS_EXPIRED]
+
+
+def list_attempts_by_test(test_id, status_filter=None):
+    coll = _collection()
+    test_id_str = str(test_id)
+    statuses = _parse_status_filter(status_filter)
+    query = {
+        "testId": test_id_str,
+        "status": {"$in": statuses},
+        "isPractice": False,
+    }
+    cursor = coll.find(query).sort("startedAt", -1)
+    items = []
+    for doc in cursor:
+        doc = _mark_expired_if_needed(doc)
+        items.append(_serialize_attempt_list_item(doc))
+    return items
+
+
+def _serialize_attempt_list_item(doc):
+    if not doc:
+        return None
+    expires_at = doc.get("expiresAt")
+    time_expired = doc.get("status") == STATUS_EXPIRED
+    if not time_expired and expires_at and doc.get("status") == STATUS_IN_PROGRESS:
+        if remaining_seconds(expires_at) <= 0:
+            time_expired = True
+    answers = doc.get("answers") or []
+    order = doc.get("questionOrder") or []
+    status = doc.get("status")
+    if time_expired and status == STATUS_IN_PROGRESS:
+        status = STATUS_EXPIRED
+    return {
+        "attemptId": str(doc["_id"]),
+        "studentId": doc.get("studentId"),
+        "testId": doc.get("testId"),
+        "status": status,
+        "isPractice": bool(doc.get("isPractice")),
+        "startedAt": doc.get("startedAt"),
+        "expiresAt": expires_at,
+        "remainingSeconds": 0 if time_expired else remaining_seconds(expires_at),
+        "timeExpired": time_expired,
+        "answeredCount": len(answers),
+        "totalQuestions": len(order),
+        "linkedSessionId": doc.get("linkedSessionId"),
+        "submittedAt": doc.get("submittedAt"),
+    }
+
+
+def _admin_question_payload(question):
+    q_type = question.get("type")
+    payload = {
+        "questionId": question.get("questionId"),
+        "type": q_type,
+        "text": question.get("text"),
+        "points": question.get("points"),
+    }
+    if q_type in ("single", "multiple"):
+        payload["answers"] = question.get("answers") or []
+    if q_type == "text":
+        payload["correctAnswers"] = question.get("correctAnswers") or []
+    return payload
+
+
+def _admin_answer_view(raw_answer, question):
+    if not raw_answer:
+        return None
+    view = {
+        "questionId": raw_answer.get("questionId"),
+        "type": raw_answer.get("type"),
+    }
+    q_type = raw_answer.get("type")
+    if q_type == "single":
+        view["selectedAnswer"] = raw_answer.get("selectedAnswer")
+    elif q_type == "multiple":
+        view["selectedAnswers"] = raw_answer.get("selectedAnswers") or []
+    elif q_type == "text":
+        view["textAnswer"] = raw_answer.get("textAnswer")
+    if question:
+        view["questionText"] = question.get("text")
+    return view
+
+
+def get_attempt_admin_detail(attempt_id, brief=False):
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id)})
+    except Exception:
+        return {"success": False, "error": "attempt_not_found"}
+    if not doc:
+        return {"success": False, "error": "attempt_not_found"}
+
+    doc = _mark_expired_if_needed(doc)
+    if brief:
+        return {
+            "success": True,
+            "attempt": _serialize_attempt_list_item(doc),
+        }
+
+    test = _get_test_document(doc.get("testId"))
+    from cpm_back.services.exam.student_names import (
+        get_student_names_by_ids,
+        resolve_student_name,
+    )
+
+    names = get_student_names_by_ids([doc.get("studentId")])
+    sid = doc.get("studentId")
+    order = doc.get("questionOrder") or []
+    by_qid = {q.get("questionId"): q for q in (test.get("questions") or []) if test}
+    raw_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
+
+    items = []
+    for qid in order:
+        question = by_qid.get(qid)
+        items.append({
+            "questionId": qid,
+            "question": _admin_question_payload(question) if question else None,
+            "studentAnswer": _admin_answer_view(raw_by_qid.get(qid), question),
+            "answered": qid in raw_by_qid,
+        })
+
+    return {
+        "success": True,
+        "attempt": _serialize_attempt(doc, test, include_questions=False),
+        "studentFullName": resolve_student_name(sid, names) or f"Студент #{sid}",
+        "testTitle": (test or {}).get("title"),
+        "items": items,
+    }
+
+
+def delete_attempt_by_id(attempt_id):
+    try:
+        result = _collection().delete_one({"_id": ObjectId(attempt_id)})
+        return result.deleted_count > 0
+    except Exception:
+        return False

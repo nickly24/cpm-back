@@ -432,7 +432,32 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 ### `GET /test-sessions/test/<test_id>`
 
-Все сессии по тесту — **admin**.
+Все сессии по тесту — **admin**. То же, что `GET /test/<test_id>/sessions`.
+
+---
+
+### Админ: сессии и попытки по тесту
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| GET | `/test/<test_id>/sessions` | Список сдач: имя, балл, дата, `answersCount` |
+| GET | `/test-session/<session_id>/admin` | Детали сессии + `stats` + `studentFullName` |
+| DELETE | `/test-session/<session_id>` | Удалить сдачу (студент сможет сдать снова) |
+| GET | `/test/<test_id>/attempts` | Активные попытки (query `status`, см. ниже) |
+| GET | `/test-attempt/<attempt_id>/admin` | Детали попытки: ответы по вопросам, ключи |
+| DELETE | `/test-attempt/<attempt_id>` | Удалить попытку (пересдача, если нет сессии) |
+
+**`GET /test/<test_id>/attempts?status=`**
+
+| Значение | Что вернёт |
+|----------|------------|
+| `active` (по умолчанию) | `in_progress` + `expired` |
+| `all` | + `submitted` (без practice) |
+| `in_progress,expired` | явный список статусов |
+
+Ответ списка попыток: `attempts[]` с `studentFullName`, `answeredCount`, `totalQuestions`, `remainingSeconds`, `status`.
+
+Ответ детали попытки: `items[]` — порядок вопросов, `studentAnswer`, полный `question` с правильными вариантами.
 
 ---
 
@@ -486,6 +511,13 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | GET | `/test-session/student/:sid/test/:tid` | self/admin | Сессия по паре |
 | GET | `/test-sessions/student/:sid` | self/admin | Все сессии студента |
 | GET | `/test-sessions/test/:tid` | admin | Все сессии по тесту |
+| GET | `/test/:tid/sessions` | admin | Список сдач с именами |
+| GET | `/test-session/:id/admin` | admin | Детали сдачи |
+| DELETE | `/test-session/:id` | admin | Удалить сдачу |
+| GET | `/test/:tid/attempts` | admin | Список попыток |
+| GET | `/test-attempt/:id/admin` | admin | Детали попытки |
+| DELETE | `/test-attempt/:id` | admin | Удалить попытку |
+| PUT | `/test/:id/toggle-published` | admin | Видимость теста для студентов |
 
 ---
 
