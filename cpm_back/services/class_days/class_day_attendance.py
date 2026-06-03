@@ -64,6 +64,34 @@ def set_attendance(class_day_id, student_id, attendance_type_id, zap_id=None):
             close_db_connection(connection)
 
 
+def delete_attendance(class_day_id, attendance_id):
+    """
+    Удаляет одну запись посещаемости в рамках дня занятий.
+    """
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            DELETE FROM class_day_attendance
+            WHERE id = %s AND class_day_id = %s
+            """,
+            (attendance_id, class_day_id),
+        )
+        connection.commit()
+        if cursor.rowcount == 0:
+            return {"status": False, "error": "Запись посещаемости не найдена"}
+        return {"status": True}
+    except Exception as err:
+        if connection:
+            connection.rollback()
+        return {"status": False, "error": str(err)}
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
 def get_attendance_by_class_day(class_day_id):
     """
     Список посещаемостей по дню занятий: студент + тип посещения.

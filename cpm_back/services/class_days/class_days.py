@@ -146,6 +146,40 @@ def get_class_day(class_day_id):
             close_db_connection(connection)
 
 
+def update_class_day(class_day_id, date_str, comment=None):
+    """
+    Обновляет день занятий: дату и/или комментарий.
+    """
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        cursor.execute("SELECT id FROM class_days WHERE id = %s", (class_day_id,))
+        if not cursor.fetchone():
+            return {"status": False, "error": "День занятий не найден"}
+
+        cursor.execute(
+            """
+            UPDATE class_days
+            SET date = %s, comment = %s
+            WHERE id = %s
+            """,
+            (date_str, comment or None, class_day_id),
+        )
+        connection.commit()
+        return {"status": True, "id": class_day_id}
+    except Exception as err:
+        if connection:
+            connection.rollback()
+        err_msg = str(err)
+        if "Duplicate entry" in err_msg or "uq_class_days_date" in err_msg:
+            return {"status": False, "error": "День занятий на эту дату уже существует"}
+        return {"status": False, "error": err_msg}
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
 def delete_class_day(class_day_id):
     """
     Удаляет день занятий. Каскадно удаляются записи в class_day_attendance.

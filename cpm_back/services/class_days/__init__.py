@@ -3,10 +3,12 @@ from .class_days import (
     create_class_day,
     list_class_days,
     get_class_day,
+    update_class_day,
     delete_class_day,
 )
 from .class_day_attendance import (
     set_attendance,
+    delete_attendance,
     get_attendance_by_class_day,
     get_student_class_day_attendance,
 )
@@ -16,8 +18,10 @@ __all__ = [
     "create_class_day",
     "list_class_days",
     "get_class_day",
+    "update_class_day",
     "delete_class_day",
     "set_attendance",
+    "delete_attendance",
     "get_attendance_by_class_day",
     "get_student_class_day_attendance",
 ]

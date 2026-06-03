@@ -9,8 +9,10 @@ from cpm_back.services.class_days import (
     create_class_day,
     list_class_days,
     get_class_day,
+    update_class_day,
     delete_class_day,
     set_attendance,
+    delete_attendance,
     get_attendance_by_class_day,
     get_student_class_day_attendance,
 )
@@ -59,6 +61,20 @@ def class_days_get(class_day_id, current_user=None):
     return jsonify(get_class_day(class_day_id))
 
 
+@class_days_bp.route("/class-days/<int:class_day_id>", methods=["PUT"])
+@require_role("admin")
+def class_days_update(class_day_id, current_user=None):
+    """
+    Обновить день занятий.
+    Body: { "date": "YYYY-MM-DD", "comment": "опционально" }
+    """
+    data = request.get_json() or {}
+    date_str = data.get("date")
+    if not date_str:
+        return jsonify({"status": False, "error": "Поле date обязательно (YYYY-MM-DD)"}), 400
+    return jsonify(update_class_day(class_day_id, date_str, data.get("comment")))
+
+
 @class_days_bp.route("/class-days/<int:class_day_id>", methods=["DELETE"])
 @require_role("admin")
 def class_days_delete(class_day_id, current_user=None):
@@ -94,6 +110,16 @@ def class_day_attendance_set(class_day_id, current_user=None):
             data.get("zap_id"),
         )
     )
+
+
+@class_days_bp.route(
+    "/class-days/<int:class_day_id>/attendance/<int:attendance_id>",
+    methods=["DELETE"],
+)
+@require_role("admin")
+def class_day_attendance_delete(class_day_id, attendance_id, current_user=None):
+    """Удалить запись посещаемости ученика в этот день."""
+    return jsonify(delete_attendance(class_day_id, attendance_id))
 
 
 # --- Посещаемость студента по дням занятий (для студента/супервизора) ---
