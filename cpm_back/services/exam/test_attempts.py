@@ -545,19 +545,85 @@ def _parse_status_filter(status_filter):
     return selected or [STATUS_IN_PROGRESS, STATUS_EXPIRED]
 
 
-def list_attempts_by_test(test_id, status_filter=None):
-    coll = _collection()
-    test_id_str = str(test_id)
+def _attempts_match_query(test_id, status_filter=None, student_ids=None):
+    from cpm_back.services.exam.student_names import build_student_id_mongo_filter
+
     statuses = _parse_status_filter(status_filter)
     query = {
-        "testId": test_id_str,
+        "testId": str(test_id),
         "status": {"$in": statuses},
         "isPractice": False,
     }
+    student_filter = build_student_id_mongo_filter(student_ids)
+    if student_filter:
+        query = {"$and": [query, student_filter]}
+    return query
+
+
+def count_attempts_by_test(test_id, status_filter=None, student_ids=None):
+    return _collection().count_documents(
+        _attempts_match_query(test_id, status_filter, student_ids),
+    )
+
+
+def count_attempts_by_test_and_status(test_id, statuses):
+    coll = _collection()
+    base = {"testId": str(test_id), "isPractice": False, "status": {"$in": statuses}}
+    return coll.count_documents(base)
+
+
+def list_attempts_by_test(test_id, status_filter=None, student_ids=None):
+    """Без пагинации — для обратной совместимости (не использовать в админ UI)."""
+    coll = _collection()
+    query = _attempts_match_query(test_id, status_filter, student_ids)
     cursor = coll.find(query).sort("startedAt", -1)
     items = []
     for doc in cursor:
-        doc = _mark_expired_if_needed(doc)
+        items.append(_serialize_attempt_list_item(doc))
+    return items
+
+
+def list_attempts_by_test_paginated(
+    test_id, skip=0, limit=10, status_filter=None, student_ids=None,
+):
+    coll = _collection()
+    query = _attempts_match_query(test_id, status_filter, student_ids)
+    cursor = coll.aggregate([
+        {"$match": query},
+        {"$sort": {"startedAt": -1}},
+        {"$skip": int(skip)},
+        {"$limit": int(limit)},
+        {
+            "$project": {
+                "_id": 1,
+                "studentId": 1,
+                "testId": 1,
+                "status": 1,
+                "isPractice": 1,
+                "startedAt": 1,
+                "expiresAt": 1,
+                "linkedSessionId": 1,
+                "submittedAt": 1,
+                "answeredCount": {"$size": {"$ifNull": ["$answers", []]}},
+                "totalQuestions": {"$size": {"$ifNull": ["$questionOrder", []]}},
+            }
+        },
+    ])
+    items = []
+    for row in cursor:
+        doc = {
+            "_id": row["_id"],
+            "studentId": row.get("studentId"),
+            "testId": row.get("testId"),
+            "status": row.get("status"),
+            "isPractice": row.get("isPractice"),
+            "startedAt": row.get("startedAt"),
+            "expiresAt": row.get("expiresAt"),
+            "linkedSessionId": row.get("linkedSessionId"),
+            "submittedAt": row.get("submittedAt"),
+            "answers": [{}] * row.get("answeredCount", 0),
+            "questionOrder": [None] * row.get("totalQuestions", 0),
+        }
         items.append(_serialize_attempt_list_item(doc))
     return items
 

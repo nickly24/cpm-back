@@ -150,6 +150,79 @@ def get_test_sessions_by_test(test_id):
     } for s in sessions]
 
 
+def _test_sessions_match(test_id, student_ids=None):
+    from cpm_back.services.exam.student_names import build_student_id_mongo_filter
+
+    test_id_str = str(test_id)
+    clauses = [{"$or": [{"testId": test_id_str}, {"testId": test_id}]}]
+    student_filter = build_student_id_mongo_filter(student_ids)
+    if student_filter:
+        clauses.append(student_filter)
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+def count_test_sessions_by_test(test_id, student_ids=None):
+    db = get_mongo_db()
+    return db.test_sessions.count_documents(_test_sessions_match(test_id, student_ids))
+
+
+def list_test_sessions_by_test_paginated(test_id, skip=0, limit=10, student_ids=None):
+    db = get_mongo_db()
+    match = _test_sessions_match(test_id, student_ids)
+    cursor = db.test_sessions.aggregate([
+        {"$match": match},
+        {"$sort": {"completedAt": -1}},
+        {"$skip": int(skip)},
+        {"$limit": int(limit)},
+        {
+            "$project": {
+                "_id": 1,
+                "studentId": 1,
+                "testTitle": 1,
+                "score": 1,
+                "completedAt": 1,
+                "timeSpentMinutes": 1,
+                "answersCount": {"$size": {"$ifNull": ["$answers", []]}},
+            }
+        },
+    ])
+    return [{
+        "id": str(s["_id"]),
+        "studentId": s["studentId"],
+        "testTitle": s.get("testTitle"),
+        "score": s.get("score"),
+        "completedAt": s.get("completedAt"),
+        "timeSpentMinutes": s.get("timeSpentMinutes"),
+        "answersCount": s.get("answersCount", 0),
+    } for s in cursor]
+
+
+def aggregate_test_sessions_stats(test_id):
+    """Счётчик и средний балл без загрузки документов."""
+    db = get_mongo_db()
+    match = _test_sessions_match(test_id, student_ids=None)
+    rows = list(db.test_sessions.aggregate([
+        {"$match": match},
+        {
+            "$group": {
+                "_id": None,
+                "count": {"$sum": 1},
+                "avgScore": {"$avg": "$score"},
+            }
+        },
+    ]))
+    if not rows:
+        return {"count": 0, "averageScore": None}
+    row = rows[0]
+    avg = row.get("avgScore")
+    return {
+        "count": int(row.get("count") or 0),
+        "averageScore": round(float(avg), 2) if avg is not None else None,
+    }
+
+
 def delete_test_session_by_id(session_id):
     db = get_mongo_db()
     try:

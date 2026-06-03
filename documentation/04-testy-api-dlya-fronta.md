@@ -440,12 +440,48 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 | Метод | Путь | Назначение |
 |-------|------|------------|
-| GET | `/test/<test_id>/sessions` | Список сдач: имя, балл, дата, `answersCount` |
+| GET | `/test/<test_id>/overview` | Сводка: сдало / в работе / средний балл |
+| GET | `/test/<test_id>/sessions` | Список сдач (пагинация + поиск) |
 | GET | `/test-session/<session_id>/admin` | Детали сессии + `stats` + `studentFullName` |
 | DELETE | `/test-session/<session_id>` | Удалить сдачу (студент сможет сдать снова) |
-| GET | `/test/<test_id>/attempts` | Активные попытки (query `status`, см. ниже) |
+| GET | `/test/<test_id>/attempts` | Попытки (пагинация + поиск + `status`) |
 | GET | `/test-attempt/<attempt_id>/admin` | Детали попытки: ответы по вопросам, ключи |
 | DELETE | `/test-attempt/<attempt_id>` | Удалить попытку (пересдача, если нет сессии) |
+
+**Query для списков** (sessions и attempts):
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `page` | `1` | Страница |
+| `limit` | `10` | Записей (макс. 50) |
+| `search` или `q` | — | Подстрока имени студента (мин. 2 символа) |
+
+Поиск: сначала MySQL `students.full_name LIKE`, затем фильтр Mongo по `studentId` (до 50 id). Пустой результат поиска — сразу пустой список без полного скана.
+
+**Ответ списка:**
+
+```json
+{
+  "sessions": [],
+  "pagination": { "page": 1, "limit": 10, "total": 42, "totalPages": 5, "hasNext": true, "hasPrev": false },
+  "search": "иван"
+}
+```
+
+**`GET /test/<test_id>/overview`** — только аналитика:
+
+```json
+{
+  "analytics": {
+    "sessionsCompleted": 120,
+    "averageScore": 78.5,
+    "attemptsInProgress": 3,
+    "attemptsExpired": 1,
+    "attemptsSubmitted": 0,
+    "attemptsActive": 4
+  }
+}
+```
 
 **`GET /test/<test_id>/attempts?status=`**
 
@@ -454,8 +490,6 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | `active` (по умолчанию) | `in_progress` + `expired` |
 | `all` | + `submitted` (без practice) |
 | `in_progress,expired` | явный список статусов |
-
-Ответ списка попыток: `attempts[]` с `studentFullName`, `answeredCount`, `totalQuestions`, `remainingSeconds`, `status`.
 
 Ответ детали попытки: `items[]` — порядок вопросов, `studentAnswer`, полный `question` с правильными вариантами.
 
@@ -511,10 +545,11 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | GET | `/test-session/student/:sid/test/:tid` | self/admin | Сессия по паре |
 | GET | `/test-sessions/student/:sid` | self/admin | Все сессии студента |
 | GET | `/test-sessions/test/:tid` | admin | Все сессии по тесту |
-| GET | `/test/:tid/sessions` | admin | Список сдач с именами |
+| GET | `/test/:tid/overview` | admin | Аналитика по тесту |
+| GET | `/test/:tid/sessions` | admin | Список сдач с именами (page, search) |
 | GET | `/test-session/:id/admin` | admin | Детали сдачи |
 | DELETE | `/test-session/:id` | admin | Удалить сдачу |
-| GET | `/test/:tid/attempts` | admin | Список попыток |
+| GET | `/test/:tid/attempts` | admin | Список попыток (page, search) |
 | GET | `/test-attempt/:id/admin` | admin | Детали попытки |
 | DELETE | `/test-attempt/:id` | admin | Удалить попытку |
 | PUT | `/test/:id/toggle-published` | admin | Видимость теста для студентов |

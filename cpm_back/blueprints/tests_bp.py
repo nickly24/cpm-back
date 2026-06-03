@@ -35,6 +35,7 @@ from cpm_back.services.exam.session_review import build_session_review
 from cpm_back.services.exam.test_attempts import get_pending_attempt_summary
 from cpm_back.services.exam.test_admin_monitoring import (
     delete_test_session_admin,
+    get_test_admin_overview,
     get_test_session_admin_detail,
     list_test_attempts_admin,
     list_test_sessions_admin,
@@ -429,12 +430,26 @@ def sessions_by_student(student_id, current_user=None):
     return jsonify(get_test_sessions_by_student(student_id))
 
 
+@tests_bp.route('/test/<test_id>/overview', methods=['GET'])
+@require_role('admin')
+def admin_test_overview(test_id, current_user=None):
+    result = get_test_admin_overview(test_id)
+    if not result.get('success'):
+        return jsonify(result), 404
+    return jsonify(result)
+
+
 @tests_bp.route('/test/<test_id>/sessions', methods=['GET'])
 @require_role('admin')
 def admin_sessions_by_test(test_id, current_user=None):
     if not get_test_by_id(test_id):
         return jsonify({"error": "Test not found"}), 404
-    return jsonify(list_test_sessions_admin(test_id))
+    return jsonify(list_test_sessions_admin(
+        test_id,
+        page=request.args.get('page'),
+        limit=request.args.get('limit'),
+        search=request.args.get('search') or request.args.get('q'),
+    ))
 
 
 @tests_bp.route('/test-sessions/test/<test_id>', methods=['GET'])
@@ -443,14 +458,25 @@ def sessions_by_test(test_id, current_user=None):
     """Обратная совместимость — то же, что GET /test/<id>/sessions."""
     if not get_test_by_id(test_id):
         return jsonify({"error": "Test not found"}), 404
-    return jsonify(list_test_sessions_admin(test_id))
+    return jsonify(list_test_sessions_admin(
+        test_id,
+        page=request.args.get('page'),
+        limit=request.args.get('limit'),
+        search=request.args.get('search') or request.args.get('q'),
+    ))
 
 
 @tests_bp.route('/test/<test_id>/attempts', methods=['GET'])
 @require_role('admin')
 def admin_attempts_by_test(test_id, current_user=None):
     status = request.args.get('status', 'active')
-    result = list_test_attempts_admin(test_id, status_filter=status)
+    result = list_test_attempts_admin(
+        test_id,
+        status_filter=status,
+        page=request.args.get('page'),
+        limit=request.args.get('limit'),
+        search=request.args.get('search') or request.args.get('q'),
+    )
     if not result.get('success'):
         code = 404 if result.get('error') == 'test_not_found' else 400
         return jsonify(result), code
