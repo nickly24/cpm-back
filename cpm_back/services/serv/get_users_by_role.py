@@ -7,11 +7,27 @@ def get_users_by_role(role):
         cursor = connection.cursor(dictionary=True)
 
         if role == "student":
-            cursor.execute("SELECT id, full_name, group_id, class, tg_name FROM students ORDER BY full_name")
+            cursor.execute("""
+                SELECT
+                    s.id,
+                    s.full_name,
+                    s.group_id,
+                    s.school_id,
+                    s.class,
+                    s.tg_name,
+                    sch.name AS school_name,
+                    sch.short_name AS school_short_name
+                FROM students s
+                LEFT JOIN schools sch ON sch.id = s.school_id
+                ORDER BY s.full_name
+            """)
             result = [{
                 "id": row["id"], 
                 "full_name": row["full_name"],
                 "group_id": row["group_id"],
+                "school_id": row.get("school_id"),
+                "school_name": row.get("school_name"),
+                "school_short_name": row.get("school_short_name"),
                 "class": row["class"],
                 "tg_name": row["tg_name"]
             } for row in cursor.fetchall()]

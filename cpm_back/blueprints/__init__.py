@@ -2,6 +2,7 @@ from .auth_bp import auth_bp
 from .homework_bp import homework_bp
 from .students_bp import students_bp
 from .groups_bp import groups_bp
+from .schools_bp import schools_bp
 from .attendance_bp import attendance_bp
 from .class_days_bp import class_days_bp
 from .users_bp import users_bp
@@ -19,6 +20,7 @@ __all__ = [
     'homework_bp',
     'students_bp',
     'groups_bp',
+    'schools_bp',
     'attendance_bp',
     'class_days_bp',
     'users_bp',

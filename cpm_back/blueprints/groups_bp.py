@@ -10,6 +10,9 @@ from cpm_back.services.serv import (
     reset_group_for_user,
     assign_proctor_to_group,
     assign_student_to_group,
+    get_groups_overview,
+    get_group_members,
+    search_groups_and_members,
 )
 
 groups_bp = Blueprint('groups', __name__, url_prefix='/api')
@@ -18,7 +21,45 @@ groups_bp = Blueprint('groups', __name__, url_prefix='/api')
 @groups_bp.route('/get-groups-students', methods=['GET'])
 @require_role('admin')
 def groups_students(current_user=None):
+    """Legacy: полный снимок всех групп (оптимизирован, 3 SQL вместо 2N+1)."""
     return jsonify(merge_groups_students_proctors())
+
+
+@groups_bp.route('/groups/overview', methods=['GET'])
+@require_role('admin')
+def groups_overview(current_user=None):
+    """
+    Лёгкий список: группа + проктор + student_count.
+    Query: search, page, limit
+    """
+    answer = get_groups_overview(
+        search=request.args.get('search') or request.args.get('q'),
+        page=request.args.get('page', 1),
+        limit=request.args.get('limit', 20),
+    )
+    return jsonify(answer), 200 if answer.get('status') else 500
+
+
+@groups_bp.route('/groups/<int:group_id>/members', methods=['GET'])
+@require_role('admin')
+def group_members(group_id, current_user=None):
+    """Состав одной группы — подгрузка по клику."""
+    answer = get_group_members(group_id)
+    return jsonify(answer), 200 if answer.get('status') else 404
+
+
+@groups_bp.route('/groups/search', methods=['GET'])
+@require_role('admin')
+def groups_search(current_user=None):
+    """
+    Поиск групп и учеников по имени.
+    Query: q (обяз.), limit
+    """
+    answer = search_groups_and_members(
+        query=request.args.get('q') or request.args.get('search'),
+        limit=request.args.get('limit', 50),
+    )
+    return jsonify(answer), 200 if answer.get('status') else 400
 
 
 @groups_bp.route('/get-groups', methods=['GET'])

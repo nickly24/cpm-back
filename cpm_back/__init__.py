@@ -15,6 +15,7 @@ from .blueprints import (
     homework_bp,
     students_bp,
     groups_bp,
+    schools_bp,
     attendance_bp,
     class_days_bp,
     users_bp,
@@ -130,6 +131,7 @@ def create_app():
     app.register_blueprint(homework_bp)
     app.register_blueprint(students_bp)
     app.register_blueprint(groups_bp)
+    app.register_blueprint(schools_bp)
     app.register_blueprint(attendance_bp)
     app.register_blueprint(class_days_bp)
     app.register_blueprint(users_bp)

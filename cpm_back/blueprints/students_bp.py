@@ -3,6 +3,7 @@
 """
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
+from cpm_back.services.serv.edit_student import _UNSET
 from cpm_back.services.serv import (
     get_student_ids_and_names_by_group,
     get_all_students,
@@ -55,7 +56,12 @@ def add(current_user=None):
         class_number = int(class_number)
     except (ValueError, TypeError):
         return jsonify({"status": False, "error": "Поле 'class' должно быть числом"}), 400
-    answer = add_student(full_name, class_number, tg_name)
+    answer = add_student(
+        full_name,
+        class_number,
+        tg_name=tg_name,
+        school_id=data.get('school_id'),
+    )
     return jsonify(answer), 200 if answer.get('status') else 400
 
 
@@ -65,7 +71,8 @@ def edit(current_user=None):
     data = request.get_json()
     if not data or not data.get('student_id'):
         return jsonify({"status": False, "error": "student_id обязателен"}), 400
-    if all(data.get(f) is None for f in ['full_name', 'class', 'group_id', 'tg_name']):
+    tg_name = data.get('tg_name')
+    if all(data.get(f) is None for f in ['full_name', 'class', 'group_id', 'tg_name']) and 'school_id' not in data:
         return jsonify({"status": False, "error": "Укажите хотя бы одно поле для обновления"}), 400
     class_number = data.get('class')
     if class_number is not None:
@@ -78,7 +85,8 @@ def edit(current_user=None):
         data.get('full_name'),
         class_number,
         data.get('group_id'),
-        data.get('tg_name')
+        tg_name,
+        school_id=data.get('school_id') if 'school_id' in data else _UNSET,
     )
     return jsonify(answer), 200 if answer.get('status') else 400
 

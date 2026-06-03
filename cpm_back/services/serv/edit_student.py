@@ -1,6 +1,16 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
-def edit_student(student_id, full_name=None, class_number=None, group_id=None, tg_name=None):
+_UNSET = object()
+
+
+def edit_student(
+    student_id,
+    full_name=None,
+    class_number=None,
+    group_id=None,
+    tg_name=None,
+    school_id=_UNSET,
+):
     """
     Редактирует данные студента
     
@@ -9,6 +19,7 @@ def edit_student(student_id, full_name=None, class_number=None, group_id=None, t
         full_name (str, optional): Новое полное имя студента
         class_number (int, optional): Новый класс студента (9, 10 или 11)
         group_id (int, optional): Новый ID группы студента
+        school_id (int, optional): Новый ID школы (null — снять привязку)
         tg_name (str, optional): Новый Telegram никнейм студента
     
     Returns:
@@ -17,7 +28,10 @@ def edit_student(student_id, full_name=None, class_number=None, group_id=None, t
     connection = None
     try:
         # Проверяем, что хотя бы одно поле для обновления передано
-        if all(param is None for param in [full_name, class_number, group_id, tg_name]):
+        if all(
+            param is None
+            for param in [full_name, class_number, group_id, tg_name]
+        ) and school_id is _UNSET:
             return {
                 "status": False,
                 "error": "Необходимо указать хотя бы одно поле для обновления"
@@ -59,7 +73,17 @@ def edit_student(student_id, full_name=None, class_number=None, group_id=None, t
         if group_id is not None:
             update_fields.append("group_id = %s")
             update_values.append(group_id)
-        
+
+        if school_id is not _UNSET:
+            if school_id is not None:
+                from .school_utils import validate_school_id
+
+                school_check = validate_school_id(cursor, school_id)
+                if not school_check["status"]:
+                    return {"status": False, "error": school_check["error"]}
+            update_fields.append("school_id = %s")
+            update_values.append(school_id)
+
         if tg_name is not None:
             update_fields.append("tg_name = %s")
             update_values.append(tg_name)
@@ -90,6 +114,7 @@ def edit_student(student_id, full_name=None, class_number=None, group_id=None, t
                 "full_name": updated_student['full_name'],
                 "class": updated_student['class'],
                 "group_id": updated_student['group_id'],
+                "school_id": updated_student.get('school_id'),
                 "tg_name": updated_student.get('tg_name')
             }
         }

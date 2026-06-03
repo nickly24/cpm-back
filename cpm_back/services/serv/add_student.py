@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash
 import random
 import string
 
-def add_student(full_name, class_number, tg_name=None):
+def add_student(full_name, class_number, tg_name=None, school_id=None):
     """
     Добавляет нового студента с автоматической генерацией логина и пароля
     
@@ -11,6 +11,7 @@ def add_student(full_name, class_number, tg_name=None):
         full_name (str): Полное имя студента
         class_number (int): Класс студента (9, 10 или 11)
         tg_name (str, optional): Telegram никнейм студента
+        school_id (int, optional): ID школы
     
     Returns:
         dict: Результат операции с данными студента
@@ -26,7 +27,14 @@ def add_student(full_name, class_number, tg_name=None):
         
         # Получаем подключение из пула
         connection = get_db_connection()
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
+
+        if school_id is not None:
+            from .school_utils import validate_school_id
+
+            school_check = validate_school_id(cursor, school_id)
+            if not school_check["status"]:
+                return {"status": False, "error": school_check["error"]}
         
         # Генерируем логин на основе имени и класса
         # Формат: первая буква имени + фамилия + класс + случайные цифры
@@ -58,10 +66,10 @@ def add_student(full_name, class_number, tg_name=None):
         
         # 1. Добавляем студента в таблицу students
         insert_student_query = """
-        INSERT INTO students (full_name, class, group_id, tg_name) 
-        VALUES (%s, %s, NULL, %s)
+        INSERT INTO students (full_name, class, group_id, school_id, tg_name) 
+        VALUES (%s, %s, NULL, %s, %s)
         """
-        cursor.execute(insert_student_query, (full_name, class_number, tg_name))
+        cursor.execute(insert_student_query, (full_name, class_number, school_id, tg_name))
         student_id = cursor.lastrowid
         
         # 2. Добавляем запись в auth_users
@@ -84,6 +92,7 @@ def add_student(full_name, class_number, tg_name=None):
                 "login": login,
                 "password": password,
                 "group_id": None,
+                "school_id": school_id,
                 "tg_name": tg_name
             }
         }

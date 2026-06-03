@@ -16,9 +16,18 @@ def get_student_by_id(student_id):
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
-            SELECT id, full_name, group_id, class, tg_name 
-            FROM students 
-            WHERE id = %s
+            SELECT
+                s.id,
+                s.full_name,
+                s.group_id,
+                s.school_id,
+                s.class,
+                s.tg_name,
+                sch.name AS school_name,
+                sch.short_name AS school_short_name
+            FROM students s
+            LEFT JOIN schools sch ON sch.id = s.school_id
+            WHERE s.id = %s
         """, (student_id,))
         
         student = cursor.fetchone()
@@ -31,6 +40,9 @@ def get_student_by_id(student_id):
             "name": student["full_name"],
             "class": student["class"],
             "group_id": student["group_id"],
+            "school_id": student.get("school_id"),
+            "school_name": student.get("school_name"),
+            "school_short_name": student.get("school_short_name"),
             "tg_name": student["tg_name"]
         }
         
