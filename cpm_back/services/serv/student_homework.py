@@ -11,13 +11,13 @@ def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=N
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        where_parts = []
+        where_parts = ["h.published = 1"]
         count_params = []
         if homework_type:
             where_parts.append("h.type = %s")
             count_params.append(homework_type)
 
-        where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        where_sql = "WHERE " + " AND ".join(where_parts)
 
         # Общее количество домашних заданий (с учётом фильтра по типу)
         count_query = f"SELECT COUNT(*) as total FROM homework h {where_sql}"

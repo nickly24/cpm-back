@@ -1,7 +1,9 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 import datetime
 
-def create_homework_and_sessions(homework_name, homework_type, deadline_str):
+def create_homework_and_sessions(
+    homework_name, homework_type, deadline_str, published=True
+):
     connection = None
     try:
         connection = get_db_connection()
@@ -11,8 +13,14 @@ def create_homework_and_sessions(homework_name, homework_type, deadline_str):
         deadline = datetime.datetime.strptime(deadline_str, "%Y-%m-%d").date()
 
         # Добавляем новую домашнюю работу в таблицу homework с дедлайном
-        insert_homework_query = "INSERT INTO homework (name, type, deadline) VALUES (%s, %s, %s)"
-        cursor.execute(insert_homework_query, (homework_name, homework_type, deadline))
+        published_val = 1 if published else 0
+        insert_homework_query = (
+            "INSERT INTO homework (name, type, deadline, published) VALUES (%s, %s, %s, %s)"
+        )
+        cursor.execute(
+            insert_homework_query,
+            (homework_name, homework_type, deadline, published_val),
+        )
         connection.commit()
 
         homework_id = cursor.lastrowid
@@ -24,7 +32,7 @@ def create_homework_and_sessions(homework_name, homework_type, deadline_str):
 
         if not students:
             print("Нет студентов для создания сессий.")
-            return
+            return {"status": True, "homeworkId": homework_id}
 
         # Создаём записи в homework_sessions для каждого студента
         insert_session_query = """
@@ -36,7 +44,7 @@ def create_homework_and_sessions(homework_name, homework_type, deadline_str):
         connection.commit()
 
         print(f"Созданы сессии для всех студентов.")
-        return {'status': True}
+        return {"status": True, "homeworkId": homework_id}
 
     except ValueError:
         print("Ошибка формата даты. Ожидается строка в формате YYYY-MM-DD.")

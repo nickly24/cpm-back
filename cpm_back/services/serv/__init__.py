@@ -17,6 +17,12 @@ from .student_homework import get_student_homework_dashboard
 from .pass_homework import pass_homework
 from .add_homework import create_homework_and_sessions
 from .delete_homework import delete_homework
+from .homework_admin import (
+    get_homework_by_id,
+    update_homework,
+    toggle_homework_published,
+    get_homework_overview,
+)
 from .edit_homework_session import edit_homework_session
 from .get_all_homework_results import get_all_homework_results
 from .get_homework_results_paginated import get_homework_results_paginated, get_homework_students
@@ -51,6 +57,10 @@ __all__ = [
     'pass_homework',
     'create_homework_and_sessions',
     'delete_homework',
+    'get_homework_by_id',
+    'update_homework',
+    'toggle_homework_published',
+    'get_homework_overview',
     'edit_homework_session',
     'get_all_homework_results',
     'get_homework_results_paginated',

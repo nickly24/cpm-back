@@ -18,6 +18,10 @@ from cpm_back.services.serv import (
     get_homework_results_paginated,
     get_homework_students,
     get_ov_homework_table,
+    get_homework_by_id,
+    update_homework,
+    toggle_homework_published,
+    get_homework_overview,
 )
 
 homework_bp = Blueprint('homework', __name__, url_prefix='/api')
@@ -28,10 +32,18 @@ def list_homeworks():
     page = request.args.get('page', type=int, default=1)
     limit = request.args.get('limit', type=int, default=50)
     homework_type = request.args.get('type', default=None)
-    if page is not None or limit is not None or homework_type:
+    search = request.args.get('search') or request.args.get('q')
+    if page is not None or limit is not None or homework_type or search:
         limit = min(max(1, limit or 50), 100)
         page = max(1, page or 1)
-        return jsonify(get_homeworks_paginated(page=page, limit=limit, homework_type=homework_type))
+        return jsonify(
+            get_homeworks_paginated(
+                page=page,
+                limit=limit,
+                homework_type=homework_type,
+                search=search,
+            )
+        )
     return jsonify(get_homeworks())
 
 
@@ -151,15 +163,117 @@ def edit_session(current_user=None):
     return jsonify(answer), 200 if answer.get('status') else 400
 
 
+@homework_bp.route('/homework/<int:homework_id>', methods=['GET'])
+@require_role('admin')
+def homework_detail(homework_id, current_user=None):
+    result = get_homework_by_id(homework_id)
+    if not result.get('status'):
+        return jsonify({"error": result.get("error", "Not found")}), 404
+    return jsonify(result['res'])
+
+
+@homework_bp.route('/homework/<int:homework_id>', methods=['PUT'])
+@require_role('admin')
+def homework_update(homework_id, current_user=None):
+    data = request.get_json() or {}
+    payload = {}
+    if 'name' in data or 'homeworkName' in data:
+        payload['name'] = data.get('name') or data.get('homeworkName')
+    if 'type' in data or 'homeworkType' in data:
+        payload['type'] = data.get('type') or data.get('homeworkType')
+    if 'deadline' in data:
+        payload['deadline'] = data.get('deadline')
+    if 'published' in data:
+        payload['published'] = data.get('published')
+
+    result = update_homework(homework_id, payload)
+    if not result.get('status'):
+        return jsonify({"error": result.get("error", "Update failed")}), 400
+    return jsonify({
+        "message": "Homework updated successfully",
+        "homeworkId": homework_id,
+    })
+
+
+@homework_bp.route('/homework/<int:homework_id>/toggle-published', methods=['PUT'])
+@require_role('admin')
+def homework_toggle_published(homework_id, current_user=None):
+    existing = get_homework_by_id(homework_id)
+    if not existing.get('status'):
+        return jsonify({"error": "Homework not found"}), 404
+    result = toggle_homework_published(homework_id)
+    if not result.get('status'):
+        return jsonify({"error": result.get("error", "Toggle failed")}), 500
+    return jsonify({
+        "message": result.get("message"),
+        "published": result.get("published"),
+        "homeworkId": homework_id,
+    })
+
+
+@homework_bp.route('/homework/<int:homework_id>/overview', methods=['GET'])
+@require_role('admin')
+def homework_overview(homework_id, current_user=None):
+    result = get_homework_overview(homework_id)
+    if not result.get('status'):
+        return jsonify({"error": result.get("error", "Not found")}), 404
+    return jsonify({
+        "homework": result.get("homework"),
+        "analytics": result.get("analytics"),
+    })
+
+
+@homework_bp.route('/homework/<int:homework_id>/students', methods=['GET'])
+@require_role('admin')
+def homework_students_get(homework_id, current_user=None):
+    page = max(1, request.args.get('page', type=int, default=1))
+    limit = max(1, min(100, request.args.get('limit', type=int, default=10)))
+    filters = {}
+    search = request.args.get('search') or request.args.get('q')
+    if search:
+        filters['search'] = search.strip()
+    status = request.args.get('status')
+    if status:
+        filters['status'] = status
+    group = request.args.get('group')
+    if group:
+        filters['group'] = group
+    return jsonify(get_homework_students(homework_id, page, limit, filters))
+
+
+@homework_bp.route('/homework/<int:homework_id>', methods=['DELETE'])
+@require_role('admin')
+def homework_delete_rest(homework_id, current_user=None):
+    existing = get_homework_by_id(homework_id)
+    if not existing.get('status'):
+        return jsonify({"error": "Homework not found"}), 404
+    answer = delete_homework(homework_id)
+    if not answer.get('status'):
+        return jsonify({"error": "Delete failed"}), 500
+    return jsonify({
+        "message": "Homework deleted successfully",
+        "homeworkId": homework_id,
+    })
+
+
 @homework_bp.route('/create-homework', methods=['POST'])
 @require_role('admin')
 def create_hw(current_user=None):
-    data = request.get_json()
+    data = request.get_json() or {}
+    published = data.get('published', True)
+    if isinstance(published, str):
+        published = published.lower() in ('1', 'true', 'yes')
     answer = create_homework_and_sessions(
         data.get('homeworkName'),
         data.get('homeworkType'),
-        data.get('deadline')
+        data.get('deadline'),
+        published=bool(published),
     )
+    if answer.get('status') and answer.get('homeworkId'):
+        return jsonify({
+            **answer,
+            "id": answer['homeworkId'],
+        })
     return jsonify(answer)
 
 

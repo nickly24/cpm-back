@@ -6,7 +6,7 @@ def get_homeworks():
     return get_homeworks_paginated(page=1, limit=500, homework_type=None)
 
 
-def get_homeworks_paginated(page=1, limit=20, homework_type=None):
+def get_homeworks_paginated(page=1, limit=20, homework_type=None, search=None):
     """
     Домашние задания с пагинацией и опциональным фильтром по типу (ОВ, ДЗНВ и т.д.).
     По сути «по направлениям» — тип домашки как направление.
@@ -16,8 +16,15 @@ def get_homeworks_paginated(page=1, limit=20, homework_type=None):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        where_sql = "WHERE h.type = %s" if homework_type else ""
-        count_params = [homework_type] if homework_type else []
+        where_parts = []
+        count_params = []
+        if homework_type:
+            where_parts.append("h.type = %s")
+            count_params.append(homework_type)
+        if search and str(search).strip():
+            where_parts.append("h.name LIKE %s")
+            count_params.append(f"%{str(search).strip()}%")
+        where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         count_query = f"SELECT COUNT(*) as total FROM homework h {where_sql}"
         cursor.execute(count_query, count_params)
@@ -27,7 +34,7 @@ def get_homeworks_paginated(page=1, limit=20, homework_type=None):
         query_params = count_params + [limit, offset]
 
         query = f"""
-            SELECT id, name, type, deadline
+            SELECT id, name, type, deadline, published
             FROM homework h
             {where_sql}
             ORDER BY h.deadline DESC
@@ -49,7 +56,13 @@ def get_homeworks_paginated(page=1, limit=20, homework_type=None):
             }
 
         homework_list = [
-            {"id": row["id"], "name": row["name"], "type": row["type"], "deadline": row["deadline"]}
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "type": row["type"],
+                "deadline": row["deadline"],
+                "published": bool(row.get("published", 1)),
+            }
             for row in results
         ]
         total_pages = (total + limit - 1) // limit if total else 1

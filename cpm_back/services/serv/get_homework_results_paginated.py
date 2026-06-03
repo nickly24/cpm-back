@@ -171,12 +171,17 @@ def get_homework_students(homework_id, page=1, limit=50, filters=None):
         cursor = connection.cursor(dictionary=True)
         # Базовые фильтры для студентов
         where_conditions = ["h.id = %s"]
-        params = [homework_id]
-        
+        filter_params = [homework_id]
+
         if filters:
+            if filters.get("search"):
+                term = f"%{str(filters['search']).strip()}%"
+                where_conditions.append("s.full_name LIKE %s")
+                filter_params.append(term)
+
             if filters.get('group'):
                 where_conditions.append("g.name = %s")
-                params.append(filters['group'])
+                filter_params.append(filters['group'])
             
             if filters.get('status'):
                 if filters['status'] == 'submitted':
@@ -223,7 +228,8 @@ def get_homework_students(homework_id, page=1, limit=50, filters=None):
         """
         
         offset = (page - 1) * limit
-        cursor.execute(students_query, params + [limit, offset])
+        query_params = [homework_id] + filter_params + [limit, offset]
+        cursor.execute(students_query, query_params)
         students = cursor.fetchall()
 
         # Получаем общее количество студентов
@@ -235,7 +241,8 @@ def get_homework_students(homework_id, page=1, limit=50, filters=None):
         CROSS JOIN homework h
         {where_clause}
         """
-        cursor.execute(count_query, params)
+        count_params = [homework_id] + filter_params
+        cursor.execute(count_query, count_params)
         total_items = cursor.fetchone()['total']
         total_pages = (total_items + limit - 1) // limit
 
