@@ -32,6 +32,16 @@ from .get_ov_homework_table import get_ov_homework_table
 from .create_zap import create_zap
 from .get_zaps import get_zaps_by_student, get_all_zaps, get_zap_by_id
 from .process_zap import process_zap
+from .zap_dates import (
+    normalize_dates,
+    insert_zap_dates,
+    link_zap_date,
+    process_zap_dates,
+    retry_zap_date,
+    cancel_zap_dates,
+    fetch_zap_dates_map,
+    dates_summary_from_list,
+)
 from .add_student import add_student
 from .edit_student import edit_student
 from .validate_student_by_tg import validate_student_by_tg_name
@@ -86,6 +96,14 @@ __all__ = [
     'get_all_zaps',
     'get_zap_by_id',
     'process_zap',
+    'normalize_dates',
+    'insert_zap_dates',
+    'link_zap_date',
+    'process_zap_dates',
+    'retry_zap_date',
+    'cancel_zap_dates',
+    'fetch_zap_dates_map',
+    'dates_summary_from_list',
     'add_student',
     'edit_student',
     'validate_student_by_tg_name',
