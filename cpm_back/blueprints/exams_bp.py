@@ -5,18 +5,37 @@ from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.exam.get_exams import (
     get_all_exams,
+    get_all_exams_paginated,
     get_exam_session,
     get_exam_sessions_by_student,
+    get_exam_sessions_by_student_paginated,
     get_all_exam_sessions,
     get_exam_sessions_by_exam,
+    get_exam_sessions_by_exam_paginated,
 )
 from cpm_back.services.exam.get_student_attendance import get_student_attendance
 
 exams_bp = Blueprint('exams', __name__, url_prefix='')
 
 
+def _uses_pagination():
+    return (
+        request.args.get('page') is not None
+        or request.args.get('limit') is not None
+    )
+
+
 @exams_bp.route('/get-all-exams', methods=['GET'])
 def list_exams():
+    if _uses_pagination():
+        return jsonify(
+            get_all_exams_paginated(
+                page_raw=request.args.get('page'),
+                limit_raw=request.args.get('limit'),
+                search=request.args.get('search'),
+                sort=request.args.get('sort', 'date'),
+            )
+        )
     return jsonify(get_all_exams())
 
 
@@ -34,6 +53,16 @@ def exam_session(current_user=None):
 @exams_bp.route('/get-student-exam-sessions/<student_id>', methods=['GET'])
 @require_self_or_role('student_id', 'admin')
 def student_sessions(student_id, current_user=None):
+    if _uses_pagination():
+        return jsonify(
+            get_exam_sessions_by_student_paginated(
+                student_id=student_id,
+                page_raw=request.args.get('page'),
+                limit_raw=request.args.get('limit'),
+                grade=request.args.get('grade'),
+                sort=request.args.get('sort', 'exam_date'),
+            )
+        )
     return jsonify(get_exam_sessions_by_student(student_id))
 
 
@@ -46,6 +75,16 @@ def all_sessions(current_user=None):
 @exams_bp.route('/get-exam-sessions/<exam_id>', methods=['GET'])
 @require_role('admin')
 def sessions_by_exam(exam_id, current_user=None):
+    if _uses_pagination():
+        return jsonify(
+            get_exam_sessions_by_exam_paginated(
+                exam_id=exam_id,
+                page_raw=request.args.get('page'),
+                limit_raw=request.args.get('limit'),
+                search=request.args.get('search'),
+                sort=request.args.get('sort', 'student_name'),
+            )
+        )
     return jsonify(get_exam_sessions_by_exam(exam_id))
 
 
