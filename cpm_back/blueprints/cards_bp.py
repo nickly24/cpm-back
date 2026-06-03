@@ -5,6 +5,13 @@
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
+from cpm_back.services.cards import (
+    get_training_sections as fetch_training_sections,
+    get_training_tree,
+    get_themes,
+    create_training_section,
+    create_theme_with_questions,
+)
 
 cards_bp = Blueprint('cards', __name__, url_prefix='')
 
@@ -106,65 +113,62 @@ def cards_to_learn(student_id, theme_id, current_user=None):
 
 @cards_bp.route('/create-theme-with-questions', methods=['POST'])
 @require_role('admin')
-def create_theme_with_questions(current_user=None):
-    connection = None
-    try:
-        data = request.get_json()
-        theme_name = data.get('name')
-        questions = data.get('questions', [])
-        if not theme_name:
-            return jsonify({"success": False, "error": "Theme name is required"}), 400
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT id FROM card_themes WHERE name = %s", (theme_name,))
-        existing_theme = cursor.fetchone()
-        if existing_theme:
-            theme_id = existing_theme['id']
-            message = "Theme already exists"
-        else:
-            cursor.execute("INSERT INTO card_themes (name) VALUES (%s)", (theme_name,))
-            theme_id = cursor.lastrowid
-            message = "Theme created successfully"
-            connection.commit()
-        added_questions = []
-        for q in questions:
-            question = q.get('question')
-            answer = q.get('answer')
-            if not question or not answer:
-                continue
-            cursor.execute(
-                "INSERT INTO cards (question, answer, theme_id) VALUES (%s, %s, %s)",
-                (question, answer, theme_id)
-            )
-            added_questions.append({"question": question, "answer": answer, "id": cursor.lastrowid})
-        connection.commit()
-        return jsonify({
-            "success": True, "message": message, "theme_id": theme_id, "theme_name": theme_name,
-            "added_questions": added_questions, "questions_count": len(added_questions)
-        })
-    except Exception as e:
-        if connection:
-            connection.rollback()
-        return jsonify({"success": False, "error": "Internal server error", "details": str(e)}), 500
-    finally:
-        if connection:
-            close_db_connection(connection)
+def create_theme_with_questions_route(current_user=None):
+    data = request.get_json() or {}
+    theme_name = data.get('name')
+    section_id = data.get('section_id')
+    questions = data.get('questions', [])
+
+    if not section_id:
+        return jsonify({"success": False, "error": "section_id обязателен"}), 400
+
+    result = create_theme_with_questions(theme_name, section_id, questions)
+    if not result.get('success'):
+        status = 404 if result.get('error') == 'Section not found' else 400
+        if result.get('details'):
+            return jsonify(result), 500
+        return jsonify(result), status
+    return jsonify(result)
+
+
+@cards_bp.route('/create-training-section', methods=['POST'])
+@require_role('admin')
+def create_training_section_route(current_user=None):
+    data = request.get_json() or {}
+    name = data.get('name')
+    sort_order = data.get('sort_order', 0)
+
+    result = create_training_section(name, sort_order)
+    if not result.get('success'):
+        status = 409 if 'уже существует' in result.get('error', '') else 400
+        return jsonify(result), status
+    return jsonify(result), 201
+
+
+@cards_bp.route('/get-training-sections', methods=['GET'])
+def get_training_sections_route():
+    result = fetch_training_sections()
+    if not result.get('success'):
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@cards_bp.route('/get-training-tree/<int:student_id>', methods=['GET'])
+@require_self_or_role('student_id', 'admin', 'proctor')
+def get_training_tree_route(student_id, current_user=None):
+    result = get_training_tree(student_id)
+    if not result.get('success'):
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @cards_bp.route('/get-themes', methods=['GET'])
-def get_themes():
-    connection = None
-    try:
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True, buffered=True)
-        cursor.execute("SELECT * FROM card_themes")
-        themes = cursor.fetchall()
-        return jsonify(themes)
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        if connection:
-            close_db_connection(connection)
+def get_themes_route():
+    section_id = request.args.get('section_id', type=int)
+    themes = get_themes(section_id=section_id)
+    if isinstance(themes, dict) and not themes.get('success', True):
+        return jsonify(themes), 500
+    return jsonify(themes)
 
 
 @cards_bp.route('/learned-questions/<int:student_id>/<int:theme_id>', methods=['GET'])
