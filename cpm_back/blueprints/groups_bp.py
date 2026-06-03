@@ -13,6 +13,9 @@ from cpm_back.services.serv import (
     get_groups_overview,
     get_group_members,
     search_groups_and_members,
+    add_group,
+    edit_group,
+    delete_group,
 )
 
 groups_bp = Blueprint('groups', __name__, url_prefix='/api')
@@ -59,6 +62,36 @@ def groups_search(current_user=None):
         query=request.args.get('q') or request.args.get('search'),
         limit=request.args.get('limit', 50),
     )
+    return jsonify(answer), 200 if answer.get('status') else 400
+
+
+@groups_bp.route('/add-group', methods=['POST'])
+@require_role('admin')
+def create_group(current_user=None):
+    data = request.get_json() or {}
+    answer = add_group(data.get('name'))
+    return jsonify(answer), 200 if answer.get('status') else 400
+
+
+@groups_bp.route('/edit-group', methods=['PUT'])
+@require_role('admin')
+def update_group(current_user=None):
+    data = request.get_json() or {}
+    group_id = data.get('groupId') or data.get('group_id')
+    if not group_id:
+        return jsonify({"status": False, "error": "groupId обязателен"}), 400
+    answer = edit_group(group_id, data.get('name'))
+    return jsonify(answer), 200 if answer.get('status') else 400
+
+
+@groups_bp.route('/delete-group', methods=['POST'])
+@require_role('admin')
+def remove_group(current_user=None):
+    data = request.get_json() or {}
+    group_id = data.get('groupId') or data.get('group_id')
+    if not group_id:
+        return jsonify({"status": False, "error": "groupId обязателен"}), 400
+    answer = delete_group(group_id)
     return jsonify(answer), 200 if answer.get('status') else 400
 
 

@@ -84,4 +84,4 @@ def school_filter(current_user=None):
 @schools_bp.route("/get-unsigned-students-by-school", methods=["GET"])
 @require_role("admin")
 def unsigned_students(current_user=None):
-    return jsonify(get_unassigned_students_by_school())
+    return _schools_http_status(get_unassigned_students_by_school())

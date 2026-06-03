@@ -4,6 +4,7 @@ from .get_groups import get_all_groups
 from .get_proctor_bygroupid import get_proctor_by_group
 from .merge_groups_students_proctors import merge_groups_students_proctors
 from .groups_admin import get_groups_overview, get_group_members, search_groups_and_members
+from .manage_groups import add_group, edit_group, delete_group
 from .get_students import get_all_students
 from .get_unsigned_proctors_students import get_unassigned_students_and_proctors
 from .get_attendance_by_date import get_attendance_by_date
@@ -53,6 +54,9 @@ __all__ = [
     'get_groups_overview',
     'get_group_members',
     'search_groups_and_members',
+    'add_group',
+    'edit_group',
+    'delete_group',
     'get_all_students',
     'get_unassigned_students_and_proctors',
     'get_attendance_by_date',
