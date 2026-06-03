@@ -9,11 +9,30 @@ from cpm_back.services.cards import (
     get_training_sections as fetch_training_sections,
     get_training_tree,
     get_themes,
+    get_admin_training_catalog,
     create_training_section,
+    update_training_section,
+    delete_training_section,
+    create_training_theme,
+    update_training_theme,
+    delete_training_theme,
     create_theme_with_questions,
+    get_cards_by_theme_admin,
+    create_card,
+    update_card,
+    delete_card,
 )
 
 cards_bp = Blueprint('cards', __name__, url_prefix='')
+
+
+def _not_found_status(result):
+    err = result.get('error', '')
+    if err in ('Section not found', 'Theme not found', 'Card not found'):
+        return 404
+    if 'уже' in err.lower() or 'already' in err.lower():
+        return 409
+    return 400
 
 
 @cards_bp.route('/add-learned-question', methods=['POST'])
@@ -150,6 +169,117 @@ def get_training_sections_route():
     result = fetch_training_sections()
     if not result.get('success'):
         return jsonify(result), 500
+    return jsonify(result)
+
+
+@cards_bp.route('/get-admin-training-catalog', methods=['GET'])
+@require_role('admin')
+def get_admin_training_catalog_route(current_user=None):
+    result = get_admin_training_catalog()
+    if not result.get('success'):
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@cards_bp.route('/training-section/<int:section_id>', methods=['PUT'])
+@require_role('admin')
+def update_training_section_route(section_id, current_user=None):
+    data = request.get_json() or {}
+    result = update_training_section(
+        section_id,
+        name=data.get('name'),
+        sort_order=data.get('sort_order'),
+    )
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/training-section/<int:section_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_training_section_route(section_id, current_user=None):
+    result = delete_training_section(section_id)
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/create-training-theme', methods=['POST'])
+@require_role('admin')
+def create_training_theme_route(current_user=None):
+    data = request.get_json() or {}
+    result = create_training_theme(data.get('name'), data.get('section_id'))
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result), 201
+
+
+@cards_bp.route('/training-theme/<int:theme_id>', methods=['PUT'])
+@require_role('admin')
+def update_training_theme_route(theme_id, current_user=None):
+    data = request.get_json() or {}
+    result = update_training_theme(
+        theme_id,
+        name=data.get('name'),
+        section_id=data.get('section_id'),
+    )
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/training-theme/<int:theme_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_training_theme_route(theme_id, current_user=None):
+    result = delete_training_theme(theme_id)
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/admin-cards-by-theme/<int:theme_id>', methods=['GET'])
+@require_role('admin')
+def admin_cards_by_theme_route(theme_id, current_user=None):
+    result = get_cards_by_theme_admin(theme_id)
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/create-card', methods=['POST'])
+@require_role('admin')
+def create_card_route(current_user=None):
+    data = request.get_json() or {}
+    result = create_card(
+        data.get('theme_id'),
+        data.get('question'),
+        data.get('answer'),
+    )
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result), 201
+
+
+@cards_bp.route('/card/<int:card_id>', methods=['PUT'])
+@require_role('admin')
+def update_card_route(card_id, current_user=None):
+    data = request.get_json() or {}
+    result = update_card(
+        card_id,
+        question=data.get('question'),
+        answer=data.get('answer'),
+    )
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
+    return jsonify(result)
+
+
+@cards_bp.route('/card/<int:card_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_card_route(card_id, current_user=None):
+    result = delete_card(card_id)
+    if not result.get('success'):
+        return jsonify(result), _not_found_status(result)
     return jsonify(result)
 
 
