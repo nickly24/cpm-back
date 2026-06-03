@@ -9,6 +9,8 @@ def create_test(test_data):
     test_data["createdAt"] = datetime.utcnow().isoformat() + "Z"
     if "visible" not in test_data:
         test_data["visible"] = False
+    if "published" not in test_data:
+        test_data["published"] = True
     result = tests_collection.insert_one(test_data)
     return str(result.inserted_id)
 
@@ -68,5 +70,29 @@ def toggle_test_visibility(test_id):
         if result.modified_count > 0:
             return {"success": True, "visible": new_visible, "message": f"Видимость теста {'включена' if new_visible else 'выключена'}"}
         return {"success": False, "error": "Failed to update test visibility"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def toggle_test_published(test_id):
+    db = get_mongo_db()
+    tests_collection = db.tests
+    try:
+        test = tests_collection.find_one({"_id": ObjectId(test_id)})
+        if not test:
+            return {"success": False, "error": "Test not found"}
+        current_published = test.get("published", True)
+        new_published = not current_published
+        result = tests_collection.update_one(
+            {"_id": ObjectId(test_id)},
+            {"$set": {"published": new_published, "updatedAt": datetime.utcnow().isoformat() + "Z"}},
+        )
+        if result.modified_count > 0:
+            return {
+                "success": True,
+                "published": new_published,
+                "message": f"Тест {'показан' if new_published else 'скрыт'} для студентов",
+            }
+        return {"success": False, "error": "Failed to update test published state"}
     except Exception as e:
         return {"success": False, "error": str(e)}

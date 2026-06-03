@@ -32,14 +32,18 @@ class Config:
     # Пул MySQL
     MYSQL_POOL_SIZE = int(os.environ.get('MYSQL_POOL_SIZE', '25'))
 
-    # CORS
+    # CORS — прод + любой localhost/127.0.0.1 (любой порт)
     CORS_ORIGINS = [
         'https://cpm-lms.ru',
         'http://localhost:3000',
         'http://127.0.0.1:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
         'http://localhost:3002',
         'http://127.0.0.1:3002',
     ]
+    # Доп. origin через env: CORS_ORIGINS_EXTRA=http://localhost:5173,http://192.168.1.5:3000
+    CORS_ORIGINS_EXTRA = os.environ.get('CORS_ORIGINS_EXTRA', '')
 
 
 config = Config()

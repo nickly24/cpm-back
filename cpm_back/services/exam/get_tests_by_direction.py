@@ -12,7 +12,15 @@ def get_tests_by_direction_paginated(direction_name, page=1, limit=20):
     db = get_mongo_db()
     tests_collection = db.tests
     filter_query = {"direction": direction_name}
-    projection = {"_id": 1, "title": 1, "startDate": 1, "endDate": 1, "timeLimitMinutes": 1, "visible": 1}
+    projection = {
+        "_id": 1,
+        "title": 1,
+        "startDate": 1,
+        "endDate": 1,
+        "timeLimitMinutes": 1,
+        "visible": 1,
+        "published": 1,
+    }
     total = tests_collection.count_documents(filter_query)
     skip = (page - 1) * limit
     cursor = tests_collection.find(filter_query, projection).sort("startDate", -1).skip(skip).limit(limit)
@@ -25,6 +33,7 @@ def get_tests_by_direction_paginated(direction_name, page=1, limit=20):
             "endDate": test["endDate"],
             "timeLimitMinutes": test["timeLimitMinutes"],
             "visible": test.get("visible", False),
+            "published": test.get("published", True),
         })
     return result, total
 

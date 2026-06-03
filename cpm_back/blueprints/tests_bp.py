@@ -16,6 +16,7 @@ from cpm_back.services.exam.create_test import (
     delete_test,
     get_test_by_id,
     toggle_test_visibility,
+    toggle_test_published,
 )
 from cpm_back.services.exam.create_test_session import (
     create_test_session,
@@ -106,12 +107,14 @@ def tests_by_direction(direction, current_user=None):
 
     # Список только в "легком" формате (без вопросов/ответов) — полный тест грузим только через /test/<id>.
     internal_tests = get_tests_by_direction(direction)
+    role = (current_user or {}).get("role")
+    if role == "student":
+        internal_tests = [t for t in internal_tests if t.get("published", True)]
 
     directions = get_directions()
     direction_obj = next((d for d in directions if d.get('name') == direction), None)
     external_tests = []
     completed_ids = set()
-    role = (current_user or {}).get("role")
     student_id = (current_user or {}).get("id")
 
     if student_id and role == "student":
@@ -244,6 +247,7 @@ def tests_by_direction_with_sessions(direction, current_user=None):
         return enriched
 
     internal_tests = get_tests_by_direction(direction)
+    internal_tests = [t for t in internal_tests if t.get("published", True)]
     directions = get_directions()
     direction_obj = next((d for d in directions if d.get('name') == direction), None)
     external_tests = []
@@ -349,6 +353,22 @@ def toggle_visibility(test_id, current_user=None):
         return jsonify({
             "message": result["message"],
             "visible": result["visible"],
+            "testId": test_id,
+        })
+    return jsonify({"error": result["error"]}), 500
+
+
+@tests_bp.route('/test/<test_id>/toggle-published', methods=['PUT'])
+@require_role('admin')
+def toggle_published(test_id, current_user=None):
+    existing_test = get_test_by_id(test_id)
+    if not existing_test:
+        return jsonify({"error": "Test not found"}), 404
+    result = toggle_test_published(test_id)
+    if result["success"]:
+        return jsonify({
+            "message": result["message"],
+            "published": result["published"],
             "testId": test_id,
         })
     return jsonify({"error": result["error"]}), 500

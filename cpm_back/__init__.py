@@ -2,6 +2,7 @@
 Единый бэкенд CPM: авторизация, cpm-serv, cpm-exam, прокси.
 """
 import logging
+import re
 import time
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -61,15 +62,37 @@ def create_app():
     app.config['JWT_EXPIRATION_HOURS'] = config.JWT_EXPIRATION_HOURS
 
     from flask_cors import CORS
-    CORS(app, resources={
-        r"/*": {
-            "origins": config.CORS_ORIGINS,
-            "methods": ["GET", "POST", "PATCH", "OPTIONS", "PUT", "DELETE"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True,
-            "expose_headers": ["Content-Type"]
-        }
-    })
+
+    cors_origins = list(config.CORS_ORIGINS)
+    if config.CORS_ORIGINS_EXTRA:
+        cors_origins.extend(
+            origin.strip()
+            for origin in config.CORS_ORIGINS_EXTRA.split(',')
+            if origin.strip()
+        )
+    # Любой порт на localhost / 127.0.0.1 для локальной разработки
+    cors_origins.extend([
+        re.compile(r'^https?://localhost(:\d+)?$'),
+        re.compile(r'^https?://127\.0\.0\.1(:\d+)?$'),
+    ])
+
+    CORS(
+        app,
+        resources={r'/*': {
+            'origins': cors_origins,
+            'methods': ['GET', 'POST', 'PATCH', 'OPTIONS', 'PUT', 'DELETE'],
+            'allow_headers': ['Content-Type', 'Authorization', 'X-Requested-With'],
+            'supports_credentials': True,
+            'expose_headers': ['Content-Type'],
+        }},
+        intercept_exceptions=True,
+    )
+
+    @app.before_request
+    def cors_preflight_short_circuit():
+        """Preflight 2xx для любого пути (даже если роут ещё не задеплоен)."""
+        if request.method == 'OPTIONS':
+            return '', 204
 
     init_mysql_pool(config)
     init_mongo(config)
