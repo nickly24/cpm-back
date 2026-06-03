@@ -80,23 +80,36 @@ def _fetch_students_by_group_ids(cursor, group_ids):
     if not group_ids:
         return defaultdict(list)
 
+    from .school_schema import is_schools_schema_ready
+
     placeholders = ", ".join(["%s"] * len(group_ids))
-    cursor.execute(
-        f"""
-        SELECT
-            s.id,
-            s.full_name,
-            s.class,
-            s.group_id,
-            s.school_id,
-            sch.name AS school_name
-        FROM students s
-        LEFT JOIN schools sch ON sch.id = s.school_id
-        WHERE s.group_id IN ({placeholders})
-        ORDER BY s.full_name ASC
-        """,
-        tuple(group_ids),
-    )
+    if is_schools_schema_ready(cursor):
+        cursor.execute(
+            f"""
+            SELECT
+                s.id,
+                s.full_name,
+                s.class,
+                s.group_id,
+                s.school_id,
+                sch.name AS school_name
+            FROM students s
+            LEFT JOIN schools sch ON sch.id = s.school_id
+            WHERE s.group_id IN ({placeholders})
+            ORDER BY s.full_name ASC
+            """,
+            tuple(group_ids),
+        )
+    else:
+        cursor.execute(
+            f"""
+            SELECT id, full_name, class, group_id
+            FROM students
+            WHERE group_id IN ({placeholders})
+            ORDER BY full_name ASC
+            """,
+            tuple(group_ids),
+        )
 
     students_by_group = defaultdict(list)
     for row in cursor.fetchall():
@@ -322,25 +335,45 @@ def search_groups_and_members(query, limit=DEFAULT_SEARCH_LIMIT):
         )
         groups = cursor.fetchall()
 
-        cursor.execute(
-            """
-            SELECT
-                s.id,
-                s.full_name,
-                s.class,
-                s.group_id,
-                s.school_id,
-                g.name AS group_name,
-                sch.name AS school_name
-            FROM students s
-            LEFT JOIN `groups` g ON g.id = s.group_id
-            LEFT JOIN schools sch ON sch.id = s.school_id
-            WHERE s.full_name LIKE %s
-            ORDER BY s.full_name ASC
-            LIMIT %s
-            """,
-            (pattern, limit),
-        )
+        from .school_schema import is_schools_schema_ready
+
+        if is_schools_schema_ready(cursor):
+            cursor.execute(
+                """
+                SELECT
+                    s.id,
+                    s.full_name,
+                    s.class,
+                    s.group_id,
+                    s.school_id,
+                    g.name AS group_name,
+                    sch.name AS school_name
+                FROM students s
+                LEFT JOIN `groups` g ON g.id = s.group_id
+                LEFT JOIN schools sch ON sch.id = s.school_id
+                WHERE s.full_name LIKE %s
+                ORDER BY s.full_name ASC
+                LIMIT %s
+                """,
+                (pattern, limit),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT
+                    s.id,
+                    s.full_name,
+                    s.class,
+                    s.group_id,
+                    g.name AS group_name
+                FROM students s
+                LEFT JOIN `groups` g ON g.id = s.group_id
+                WHERE s.full_name LIKE %s
+                ORDER BY s.full_name ASC
+                LIMIT %s
+                """,
+                (pattern, limit),
+            )
         students = [
             {
                 "id": row["id"],

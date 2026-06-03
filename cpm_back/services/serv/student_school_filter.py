@@ -1,11 +1,18 @@
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
+from .school_schema import require_schools_schema
+
 
 def get_student_ids_and_names_by_school(school_id):
     connection = None
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
+
         cursor.execute(
             """
             SELECT id, full_name, class, group_id, school_id
@@ -46,6 +53,11 @@ def get_unassigned_students_by_school():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
+
         cursor.execute(
             """
             SELECT id, full_name, class, group_id

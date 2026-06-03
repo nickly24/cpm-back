@@ -1,5 +1,6 @@
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
+from .school_schema import require_schools_schema
 from .school_utils import fetch_school_row, serialize_school
 
 
@@ -8,6 +9,10 @@ def get_all_schools(active_only=False):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
 
         query = """
             SELECT
@@ -55,6 +60,10 @@ def get_school_by_id(school_id):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
 
         cursor.execute(
             """

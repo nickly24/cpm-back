@@ -1,5 +1,6 @@
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
+from .school_schema import require_schools_schema
 from .school_utils import fetch_school_row, serialize_school
 
 
@@ -14,6 +15,10 @@ def edit_school(school_id, name=None, short_name=None, notes=None, is_active=Non
 
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
 
         row = fetch_school_row(cursor, school_id)
         if not row:

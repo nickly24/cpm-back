@@ -16,18 +16,26 @@ from cpm_back.services.serv import (
 schools_bp = Blueprint("schools", __name__, url_prefix="/api")
 
 
+def _schools_http_status(answer, *, ok=200, missing=503, fail=400):
+    if answer.get("code") == "schools_schema_missing":
+        return jsonify(answer), missing
+    if answer.get("status"):
+        return jsonify(answer), ok
+    return jsonify(answer), fail
+
+
 @schools_bp.route("/get-schools", methods=["GET"])
 @require_role("admin")
 def list_schools(current_user=None):
     active_only = request.args.get("active") == "1"
-    return jsonify(get_all_schools(active_only=active_only))
+    return _schools_http_status(get_all_schools(active_only=active_only))
 
 
 @schools_bp.route("/get-school/<int:school_id>", methods=["GET"])
 @require_role("admin")
 def school_by_id(school_id, current_user=None):
     answer = get_school_by_id(school_id)
-    return jsonify(answer), 200 if answer.get("status") else 404
+    return _schools_http_status(answer, ok=200, fail=404)
 
 
 @schools_bp.route("/add-school", methods=["POST"])
@@ -39,7 +47,7 @@ def create_school(current_user=None):
         short_name=data.get("short_name"),
         notes=data.get("notes"),
     )
-    return jsonify(answer), 200 if answer.get("status") else 400
+    return _schools_http_status(answer, ok=200, fail=400)
 
 
 @schools_bp.route("/edit-school", methods=["PUT"])
@@ -60,7 +68,7 @@ def update_school(current_user=None):
         notes=data.get("notes"),
         is_active=data.get("is_active"),
     )
-    return jsonify(answer), 200 if answer.get("status") else 400
+    return _schools_http_status(answer, ok=200, fail=400)
 
 
 @schools_bp.route("/student-school-filter", methods=["POST"])
@@ -70,7 +78,7 @@ def school_filter(current_user=None):
     school_id = data.get("id") or data.get("school_id")
     if not school_id:
         return jsonify({"status": False, "error": "id (school_id) обязателен"}), 400
-    return jsonify(get_student_ids_and_names_by_school(school_id))
+    return _schools_http_status(get_student_ids_and_names_by_school(school_id))
 
 
 @schools_bp.route("/get-unsigned-students-by-school", methods=["GET"])

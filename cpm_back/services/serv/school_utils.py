@@ -31,6 +31,11 @@ def serialize_school(row, student_count=None):
 
 
 def validate_school_id(cursor, school_id, *, require_active=True):
+    from .school_schema import is_schools_schema_ready, schools_schema_error
+
+    if not is_schools_schema_ready(cursor):
+        return schools_schema_error()
+
     if school_id is None:
         return {"status": True, "school": None}
 

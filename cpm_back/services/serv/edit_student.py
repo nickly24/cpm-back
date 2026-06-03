@@ -75,6 +75,12 @@ def edit_student(
             update_values.append(group_id)
 
         if school_id is not _UNSET:
+            from .school_schema import is_schools_schema_ready
+
+            if not is_schools_schema_ready(cursor):
+                from .school_schema import schools_schema_error
+                return schools_schema_error()
+
             if school_id is not None:
                 from .school_utils import validate_school_id
 

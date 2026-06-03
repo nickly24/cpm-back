@@ -1,5 +1,6 @@
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
+from .school_schema import require_schools_schema
 from .school_utils import fetch_school_row, serialize_school
 
 
@@ -15,6 +16,10 @@ def add_school(name, short_name=None, notes=None):
 
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        schema_err = require_schools_schema(cursor)
+        if schema_err:
+            return schema_err
 
         cursor.execute("SELECT id FROM schools WHERE name = %s", (name,))
         if cursor.fetchone():

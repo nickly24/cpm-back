@@ -30,7 +30,12 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
         cursor = connection.cursor(dictionary=True)
 
         if school_id is not None:
+            from .school_schema import is_schools_schema_ready
             from .school_utils import validate_school_id
+
+            if not is_schools_schema_ready(cursor):
+                from .school_schema import schools_schema_error
+                return schools_schema_error()
 
             school_check = validate_school_id(cursor, school_id)
             if not school_check["status"]:
@@ -65,11 +70,20 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
         password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
         
         # 1. Добавляем студента в таблицу students
-        insert_student_query = """
-        INSERT INTO students (full_name, class, group_id, school_id, tg_name) 
-        VALUES (%s, %s, NULL, %s, %s)
-        """
-        cursor.execute(insert_student_query, (full_name, class_number, school_id, tg_name))
+        from .school_schema import is_schools_schema_ready
+
+        if is_schools_schema_ready(cursor):
+            insert_student_query = """
+            INSERT INTO students (full_name, class, group_id, school_id, tg_name) 
+            VALUES (%s, %s, NULL, %s, %s)
+            """
+            cursor.execute(insert_student_query, (full_name, class_number, school_id, tg_name))
+        else:
+            insert_student_query = """
+            INSERT INTO students (full_name, class, group_id, tg_name) 
+            VALUES (%s, %s, NULL, %s)
+            """
+            cursor.execute(insert_student_query, (full_name, class_number, tg_name))
         student_id = cursor.lastrowid
         
         # 2. Добавляем запись в auth_users

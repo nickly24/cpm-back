@@ -1,5 +1,7 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
+from .school_schema import is_schools_schema_ready
+
 def get_users_by_role(role):
     connection = None
     try:
@@ -7,20 +9,25 @@ def get_users_by_role(role):
         cursor = connection.cursor(dictionary=True)
 
         if role == "student":
-            cursor.execute("""
-                SELECT
-                    s.id,
-                    s.full_name,
-                    s.group_id,
-                    s.school_id,
-                    s.class,
-                    s.tg_name,
-                    sch.name AS school_name,
-                    sch.short_name AS school_short_name
-                FROM students s
-                LEFT JOIN schools sch ON sch.id = s.school_id
-                ORDER BY s.full_name
-            """)
+            if is_schools_schema_ready(cursor):
+                cursor.execute("""
+                    SELECT
+                        s.id,
+                        s.full_name,
+                        s.group_id,
+                        s.school_id,
+                        s.class,
+                        s.tg_name,
+                        sch.name AS school_name,
+                        sch.short_name AS school_short_name
+                    FROM students s
+                    LEFT JOIN schools sch ON sch.id = s.school_id
+                    ORDER BY s.full_name
+                """)
+            else:
+                cursor.execute(
+                    "SELECT id, full_name, group_id, class, tg_name FROM students ORDER BY full_name"
+                )
             result = [{
                 "id": row["id"], 
                 "full_name": row["full_name"],
