@@ -98,6 +98,12 @@ def create_app():
     init_mysql_pool(config)
     init_mongo(config)
 
+    try:
+        from cpm_back.services.exam.rating_recalc_jobs import recover_stale_rating_jobs
+        recover_stale_rating_jobs()
+    except Exception as exc:
+        logger.warning("recover_stale_rating_jobs: %s", exc)
+
     @app.before_request
     def log_request():
         request.start_time = time.time()

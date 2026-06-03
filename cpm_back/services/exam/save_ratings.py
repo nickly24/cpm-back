@@ -89,38 +89,61 @@ def check_student_exists(mysql_conn, student_id):
     return result is not None
 
 
-def save_all_ratings(mysql_conn, mongo_db, date_from, date_to):
+def save_all_ratings(mysql_conn, mongo_db, date_from, date_to, progress_callback=None):
     from .calculate_ratings import calculate_student_rating
     clear_result = clear_all_ratings(mysql_conn, mongo_db)
     if not clear_result['mysql_success']:
-        return {'total_students': 0, 'successful': 0, 'failed': 0, 'errors': [f"Ошибка очистки MySQL: {clear_result['mysql_error']}"], 'clear_error': True}
+        return {'total_students': 0, 'successful': 0, 'failed': 0, 'errors': [f"Ошибка очистки MySQL: {clear_result['mysql_error']}"], 'clear_error': True, 'skipped': 0}
     if not clear_result['mongo_success']:
-        return {'total_students': 0, 'successful': 0, 'failed': 0, 'errors': [f"Ошибка очистки MongoDB: {clear_result['mongo_error']}"], 'clear_error': True}
+        return {'total_students': 0, 'successful': 0, 'failed': 0, 'errors': [f"Ошибка очистки MongoDB: {clear_result['mongo_error']}"], 'clear_error': True, 'skipped': 0}
     cursor = mysql_conn.cursor(dictionary=True)
     cursor.execute("SELECT id FROM students ORDER BY id")
     students = cursor.fetchall()
     cursor.close()
-    results = {'total_students': len(students), 'successful': 0, 'failed': 0, 'errors': [], 'skipped': 0}
-    for student in students:
+    total = len(students)
+    results = {'total_students': total, 'successful': 0, 'failed': 0, 'errors': [], 'skipped': 0}
+
+    if progress_callback:
+        progress_callback({
+            'total_students': total,
+            'processed_count': 0,
+            'successful': 0,
+            'failed': 0,
+            'skipped': 0,
+            'message': 'Очистка завершена, идёт расчёт',
+        })
+
+    for index, student in enumerate(students):
         student_id = student['id']
         if not check_student_exists(mysql_conn, student_id):
             results['skipped'] += 1
             results['errors'].append({'student_id': student_id, 'error': 'Студент не найден'})
-            continue
-        try:
-            rating_data = calculate_student_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
-            mysql_result = save_rating_to_mysql(mysql_conn, rating_data)
-            if mysql_result['success']:
-                mongo_result = save_rating_details_to_mongo(mongo_db, mysql_result['rating_id'], rating_data)
-                if mongo_result['success']:
-                    results['successful'] += 1
+        else:
+            try:
+                rating_data = calculate_student_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
+                mysql_result = save_rating_to_mysql(mysql_conn, rating_data)
+                if mysql_result['success']:
+                    mongo_result = save_rating_details_to_mongo(mongo_db, mysql_result['rating_id'], rating_data)
+                    if mongo_result['success']:
+                        results['successful'] += 1
+                    else:
+                        results['failed'] += 1
+                        results['errors'].append({'student_id': student_id, 'error': mongo_result['message']})
                 else:
                     results['failed'] += 1
-                    results['errors'].append({'student_id': student_id, 'error': mongo_result['message']})
-            else:
+                    results['errors'].append({'student_id': student_id, 'error': mysql_result['message']})
+            except Exception as e:
                 results['failed'] += 1
-                results['errors'].append({'student_id': student_id, 'error': mysql_result['message']})
-        except Exception as e:
-            results['failed'] += 1
-            results['errors'].append({'student_id': student_id, 'error': str(e)})
+                results['errors'].append({'student_id': student_id, 'error': str(e)})
+
+        if progress_callback and (index % 3 == 0 or index == total - 1):
+            progress_callback({
+                'total_students': total,
+                'processed_count': index + 1,
+                'successful': results['successful'],
+                'failed': results['failed'],
+                'skipped': results['skipped'],
+                'message': f"Обработано {index + 1} из {total}",
+            })
+
     return results

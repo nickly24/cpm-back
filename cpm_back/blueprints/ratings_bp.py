@@ -6,7 +6,12 @@ from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_auth, require_role, require_self_or_role
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.db.mongo import get_mongo_db
-from cpm_back.services.exam.save_ratings import save_all_ratings
+from cpm_back.services.exam.rating_recalc_jobs import (
+    create_recalc_job,
+    enqueue_recalc_job,
+    get_recalc_job,
+    list_recalc_jobs,
+)
 
 ratings_bp = Blueprint('ratings', __name__, url_prefix='')
 
@@ -124,22 +129,57 @@ def calculate_all(current_user=None):
         datetime.strptime(date_to, "%Y-%m-%d")
     except ValueError:
         return jsonify({"status": False, "error": "Неверный формат даты. Ожидается YYYY-MM-DD"}), 400
-    mysql_conn = None
+
     try:
-        mysql_conn = get_db_connection()
-        mongo_db = get_mongo_db()
-        results = save_all_ratings(mysql_conn, mongo_db, date_from, date_to)
-        message_parts = [f"Обработано студентов: {results['successful']}/{results['total_students']}"]
-        if results.get('skipped', 0) > 0:
-            message_parts.append(f"Пропущено: {results['skipped']}")
-        if results.get('failed', 0) > 0:
-            message_parts.append(f"Ошибок: {results['failed']}")
-        return jsonify({"status": True, "message": " | ".join(message_parts), "results": results})
+        job = create_recalc_job(
+            date_from=date_from,
+            date_to=date_to,
+            created_by=current_user.get('id') if current_user else None,
+            created_by_name=current_user.get('full_name') if current_user else None,
+        )
+        enqueue_recalc_job(job['id'])
+        return jsonify({
+            "status": True,
+            "message": "Пересчёт рейтинга запущен",
+            "job": job,
+        })
+    except ValueError as exc:
+        return jsonify({"status": False, "error": str(exc)}), 409
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
-    finally:
-        if mysql_conn:
-            close_db_connection(mysql_conn)
+
+
+@ratings_bp.route('/rating-recalc-jobs', methods=['GET'])
+@require_role('admin', 'supervisor')
+def rating_recalc_jobs_list(current_user=None):
+    try:
+        limit = request.args.get('limit', 50)
+        try:
+            limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            limit = 50
+        jobs = list_recalc_jobs(limit=limit)
+        active = next((job for job in jobs if job['status'] in ('queued', 'running')), None)
+        return jsonify({
+            "status": True,
+            "jobs": jobs,
+            "active_job_id": active['id'] if active else None,
+            "total": len(jobs),
+        })
+    except Exception as e:
+        return jsonify({"status": False, "error": str(e)}), 500
+
+
+@ratings_bp.route('/rating-recalc-jobs/<int:job_id>', methods=['GET'])
+@require_role('admin', 'supervisor')
+def rating_recalc_job_detail(job_id, current_user=None):
+    try:
+        job = get_recalc_job(job_id)
+        if not job:
+            return jsonify({"status": False, "error": "Задача не найдена"}), 404
+        return jsonify({"status": True, "job": job})
+    except Exception as e:
+        return jsonify({"status": False, "error": str(e)}), 500
 
 
 @ratings_bp.route('/my-rating', methods=['GET'])
