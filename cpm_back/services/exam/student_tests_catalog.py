@@ -23,18 +23,6 @@ MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 STUDENT_DEFAULT_LIMIT = 5
 STUDENT_MAX_LIMIT = 50
 
-TEST_PROJECTION = {
-    "_id": 1,
-    "title": 1,
-    "direction": 1,
-    "startDate": 1,
-    "endDate": 1,
-    "timeLimitMinutes": 1,
-    "visible": 1,
-    "published": 1,
-}
-
-
 def now_moscow_naive():
     return datetime.now(MOSCOW_TZ).replace(tzinfo=None)
 
@@ -142,14 +130,9 @@ def _serialize_internal_test(doc):
 
 
 def get_all_published_tests_light():
-    db = get_mongo_db()
-    cursor = db.tests.find({}, TEST_PROJECTION).sort("startDate", -1)
-    items = []
-    for doc in cursor:
-        if doc.get("published") is False:
-            continue
-        items.append(_serialize_internal_test(doc))
-    return items
+    from cpm_back.services.exam.exam_memory_cache import get_published_tests_light_cached
+
+    return get_published_tests_light_cached()
 
 
 def enrich_test_item(test_item, completed_ids, student_id, pending_map):

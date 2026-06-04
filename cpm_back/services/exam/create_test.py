@@ -4,6 +4,8 @@ from cpm_back.db.mongo import get_mongo_db
 
 
 def create_test(test_data):
+    from cpm_back.services.exam.exam_memory_cache import invalidate_published_tests_cache
+
     db = get_mongo_db()
     tests_collection = db.tests
     test_data["createdAt"] = datetime.utcnow().isoformat() + "Z"
@@ -12,11 +14,15 @@ def create_test(test_data):
     if "published" not in test_data:
         test_data["published"] = True
     result = tests_collection.insert_one(test_data)
+    invalidate_published_tests_cache()
     return str(result.inserted_id)
 
 
 def update_test(test_id, test_data):
-    from cpm_back.services.exam.test_definition_cache import invalidate_test_cache
+    from cpm_back.services.exam.exam_memory_cache import (
+        invalidate_published_tests_cache,
+        invalidate_test_cache,
+    )
 
     db = get_mongo_db()
     tests_collection = db.tests
@@ -24,10 +30,16 @@ def update_test(test_id, test_data):
     result = tests_collection.update_one({"_id": ObjectId(test_id)}, {"$set": test_data})
     if result.modified_count > 0:
         invalidate_test_cache(test_id)
+        invalidate_published_tests_cache()
     return result.modified_count > 0
 
 
 def delete_test(test_id):
+    from cpm_back.services.exam.exam_memory_cache import (
+        invalidate_published_tests_cache,
+        invalidate_test_cache,
+    )
+
     db = get_mongo_db()
     tests_collection = db.tests
     test_sessions_collection = db.test_sessions
@@ -37,6 +49,9 @@ def delete_test(test_id):
     sessions_deleted = sessions_result.deleted_count
     test_result = tests_collection.delete_one({"_id": ObjectId(test_id)})
     test_deleted = test_result.deleted_count
+    if test_deleted > 0:
+        invalidate_test_cache(test_id)
+        invalidate_published_tests_cache()
     return {
         "test_deleted": test_deleted > 0,
         "sessions_deleted": sessions_deleted,
@@ -72,6 +87,9 @@ def toggle_test_visibility(test_id):
             {"$set": {"visible": new_visible, "updatedAt": datetime.utcnow().isoformat() + "Z"}}
         )
         if result.modified_count > 0:
+            from cpm_back.services.exam.exam_memory_cache import invalidate_published_tests_cache
+
+            invalidate_published_tests_cache()
             return {"success": True, "visible": new_visible, "message": f"Видимость теста {'включена' if new_visible else 'выключена'}"}
         return {"success": False, "error": "Failed to update test visibility"}
     except Exception as e:
@@ -92,6 +110,13 @@ def toggle_test_published(test_id):
             {"$set": {"published": new_published, "updatedAt": datetime.utcnow().isoformat() + "Z"}},
         )
         if result.modified_count > 0:
+            from cpm_back.services.exam.exam_memory_cache import (
+                invalidate_published_tests_cache,
+                invalidate_test_cache,
+            )
+
+            invalidate_test_cache(test_id)
+            invalidate_published_tests_cache()
             return {
                 "success": True,
                 "published": new_published,

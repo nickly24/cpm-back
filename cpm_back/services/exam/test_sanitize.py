@@ -18,6 +18,13 @@ def sanitize_question(question):
 
 
 def questions_in_order(test, question_order):
+    test_id = test.get("_id") or test.get("id")
+    if test_id is not None:
+        from cpm_back.services.exam.exam_memory_cache import get_sanitized_questions_map_cached
+
+        qmap = get_sanitized_questions_map_cached(str(test_id))
+        return [dict(qmap[qid]) for qid in question_order if qid in qmap]
+
     by_id = {q.get("questionId"): q for q in test.get("questions", [])}
     return [sanitize_question(by_id[qid]) for qid in question_order if qid in by_id]
 
