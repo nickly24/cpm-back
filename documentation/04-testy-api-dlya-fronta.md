@@ -251,7 +251,9 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 ### `PATCH /test-attempt/<attempt_id>/answer`
 
-Сохранить ответ **один раз** на вопрос. Повтор по тому же `questionId` → **403** `answer_locked`.
+Сохранить ответ **один раз** на вопрос. Повтор с **тем же** содержимым → **200** (`idempotent: true`). Другой ответ на тот же вопрос → **403** `answer_locked`.
+
+По умолчанию ответ **лёгкий** (без `questions`). Полный attempt: `?full=1`.
 
 **Тело по типам:**
 
@@ -277,6 +279,18 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | 404 | `attempt_not_found`, `attempt_not_active` |
 
 **UI:** после успешного PATCH не давайте менять ответ на этом вопросе (или показывайте read-only). Навигация «назад» только для просмотра, без повторного PATCH.
+
+---
+
+### `POST /test-attempt/<attempt_id>/answers`
+
+Пакетная синхронизация очереди офлайн-ответов (до 60 за запрос).
+
+**Тело:** `{ "answers": [ /* как в PATCH */ ] }`
+
+**Успех 200 / частичный 207:** `{ "success", "attempt" (лёгкий), "syncedQuestionIds", "skippedQuestionIds", "errors": [{ "questionId", "error" }] }`
+
+Принимается при `status` `in_progress` или `expired` (догон после таймера).
 
 ---
 

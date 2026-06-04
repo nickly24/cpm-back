@@ -8,6 +8,7 @@ from cpm_back.services.exam.test_attempts import (
     get_attempt_for_student,
     get_active_attempt,
     patch_answer,
+    patch_answers_batch,
     submit_attempt,
     get_attempt_admin_detail,
 )
@@ -62,7 +63,13 @@ def attempt_get(attempt_id, current_user=None):
 @require_role('student')
 def attempt_patch_answer(attempt_id, current_user=None):
     data = request.get_json() or {}
-    result = patch_answer(attempt_id, current_user.get('id'), data)
+    include_questions = request.args.get('full') == '1'
+    result = patch_answer(
+        attempt_id,
+        current_user.get('id'),
+        data,
+        include_questions=include_questions,
+    )
     if not result.get('success'):
         err = result.get('error')
         if err == 'answer_locked':
@@ -73,6 +80,23 @@ def attempt_patch_answer(attempt_id, current_user=None):
             return jsonify(result), 400
         return jsonify(result), 404
     return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/answers', methods=['POST'])
+@require_role('student')
+def attempt_patch_answers_batch(attempt_id, current_user=None):
+    data = request.get_json() or {}
+    answers = data.get('answers')
+    result = patch_answers_batch(attempt_id, current_user.get('id'), answers)
+    if not result.get('success') and result.get('error'):
+        err = result.get('error')
+        if err in ('answers_required', 'answers_batch_too_large'):
+            return jsonify(result), 400
+        if err in ('time_expired', 'attempt_not_active'):
+            return jsonify(result), 403
+        return jsonify(result), 404
+    status = 200 if result.get('success') else 207
+    return jsonify(result), status
 
 
 @test_attempts_bp.route('/test-attempt/<attempt_id>/submit', methods=['POST'])

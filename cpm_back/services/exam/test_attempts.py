@@ -64,10 +64,65 @@ def _collection():
 
 
 def _get_test_document(test_id):
-    try:
-        return get_mongo_db().tests.find_one({"_id": ObjectId(test_id)})
-    except Exception:
-        return None
+    from cpm_back.services.exam.test_definition_cache import get_test_document_cached
+
+    return get_test_document_cached(test_id)
+
+
+def _answer_payload_from_data(answer_data):
+    question_id = answer_data.get("questionId")
+    a_type = answer_data.get("type")
+    if a_type not in ("single", "multiple", "text"):
+        return None, "invalid_answer_type"
+    payload = {
+        "questionId": question_id,
+        "type": a_type,
+    }
+    if a_type == "single":
+        payload["selectedAnswer"] = answer_data.get("selectedAnswer")
+    elif a_type == "multiple":
+        payload["selectedAnswers"] = answer_data.get("selectedAnswers") or []
+    elif a_type == "text":
+        payload["textAnswer"] = answer_data.get("textAnswer")
+    return payload, None
+
+
+def _answers_equal(existing, new_answer):
+    if not existing or not new_answer:
+        return False
+    if existing.get("questionId") != new_answer.get("questionId"):
+        return False
+    if existing.get("type") != new_answer.get("type"):
+        return False
+    a_type = new_answer.get("type")
+    if a_type == "single":
+        return existing.get("selectedAnswer") == new_answer.get("selectedAnswer")
+    if a_type == "multiple":
+        return sorted(existing.get("selectedAnswers") or []) == sorted(
+            new_answer.get("selectedAnswers") or []
+        )
+    if a_type == "text":
+        return (existing.get("textAnswer") or "").strip() == (
+            new_answer.get("textAnswer") or ""
+        ).strip()
+    return False
+
+
+def _attempt_accepts_answers(doc):
+    """Можно ли дописать ответы (активная сдача или догон после expire)."""
+    doc = _mark_expired_if_needed(doc)
+    status = doc.get("status")
+    if status == STATUS_IN_PROGRESS:
+        if remaining_seconds(doc.get("expiresAt")) <= 0:
+            doc = _mark_expired_if_needed(doc)
+            status = doc.get("status")
+    if status == STATUS_EXPIRED:
+        return doc, None
+    if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) > 0:
+        return doc, None
+    if status == STATUS_IN_PROGRESS:
+        return doc, "time_expired"
+    return doc, "attempt_not_active"
 
 
 def build_question_order(test):
@@ -366,11 +421,84 @@ def get_pending_attempt_summary(student_id, test_id):
     return get_active_attempt_summary(student_id, test_id)
 
 
-def patch_answer(attempt_id, student_id, answer_data):
-    student_id = normalize_student_id(student_id)
+def _apply_answer_to_doc(doc, answer_data):
+    """Один ответ в документ попытки. Возвращает (doc, error, changed, idempotent)."""
     question_id = answer_data.get("questionId")
     if question_id is None:
-        return {"success": False, "error": "question_id_required"}
+        return doc, "question_id_required", False, False
+
+    order = doc.get("questionOrder") or []
+    if question_id not in order:
+        return doc, "invalid_question_id", False, False
+
+    new_answer, err = _answer_payload_from_data(answer_data)
+    if err:
+        return doc, err, False, False
+
+    answers = list(doc.get("answers") or [])
+    for existing in answers:
+        if existing.get("questionId") == question_id:
+            if _answers_equal(existing, new_answer):
+                return doc, None, False, True
+            return doc, "answer_locked", False, False
+
+    answers.append(new_answer)
+    doc = dict(doc)
+    doc["answers"] = answers
+    return doc, None, True, False
+
+
+def _persist_attempt_answers(doc, changed):
+    if not changed:
+        return doc
+    _collection().update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"answers": doc.get("answers") or [], "updatedAt": now_utc_iso()}},
+    )
+    return _collection().find_one({"_id": doc["_id"]})
+
+
+def patch_answer(attempt_id, student_id, answer_data, include_questions=False):
+    student_id = normalize_student_id(student_id)
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id)})
+    except Exception:
+        return {"success": False, "error": "attempt_not_found"}
+
+    if not doc or doc.get("studentId") != student_id:
+        return {"success": False, "error": "attempt_not_found"}
+
+    doc, gate_err = _attempt_accepts_answers(doc)
+    if gate_err:
+        return {"success": False, "error": gate_err}
+
+    doc, err, changed, idempotent = _apply_answer_to_doc(doc, answer_data)
+    if err:
+        return {"success": False, "error": err}
+
+    if changed:
+        doc = _persist_attempt_answers(doc, True)
+    elif not idempotent:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id)})
+
+    test = _get_test_document(doc.get("testId")) if include_questions else None
+    payload = {
+        "success": True,
+        "attempt": _serialize_attempt(doc, test, include_questions=include_questions),
+    }
+    if idempotent:
+        payload["idempotent"] = True
+    return payload
+
+
+def patch_answers_batch(attempt_id, student_id, answers_list):
+    """Пакетная синхронизация ответов (офлайн-очередь). Лёгкий attempt в ответе."""
+    student_id = normalize_student_id(student_id)
+    if not isinstance(answers_list, list) or not answers_list:
+        return {"success": False, "error": "answers_required"}
+
+    if len(answers_list) > 60:
+        return {"success": False, "error": "answers_batch_too_large"}
 
     try:
         doc = _collection().find_one({"_id": ObjectId(attempt_id)})
@@ -380,45 +508,39 @@ def patch_answer(attempt_id, student_id, answer_data):
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
 
-    doc = _mark_expired_if_needed(doc)
-    if doc.get("status") != STATUS_IN_PROGRESS:
-        return {"success": False, "error": "attempt_not_active"}
+    doc, gate_err = _attempt_accepts_answers(doc)
+    if gate_err:
+        return {"success": False, "error": gate_err}
 
-    if remaining_seconds(doc.get("expiresAt")) <= 0:
-        return {"success": False, "error": "time_expired"}
+    synced = []
+    skipped = []
+    errors = []
+    any_changed = False
 
-    order = doc.get("questionOrder") or []
-    if question_id not in order:
-        return {"success": False, "error": "invalid_question_id"}
+    for item in answers_list:
+        doc, err, changed, idempotent = _apply_answer_to_doc(doc, item)
+        qid = item.get("questionId")
+        if err:
+            errors.append({"questionId": qid, "error": err})
+            continue
+        if changed:
+            any_changed = True
+            synced.append(qid)
+        elif idempotent:
+            skipped.append(qid)
 
-    answers = doc.get("answers") or []
-    for existing in answers:
-        if existing.get("questionId") == question_id:
-            return {"success": False, "error": "answer_locked"}
+    if any_changed:
+        doc = _persist_attempt_answers(doc, True)
+    else:
+        doc = _collection().find_one({"_id": doc["_id"]})
 
-    a_type = answer_data.get("type")
-    if a_type not in ("single", "multiple", "text"):
-        return {"success": False, "error": "invalid_answer_type"}
-
-    new_answer = {
-        "questionId": question_id,
-        "type": a_type,
+    return {
+        "success": len(errors) == 0,
+        "attempt": _serialize_attempt(doc, None, include_questions=False),
+        "syncedQuestionIds": synced,
+        "skippedQuestionIds": skipped,
+        "errors": errors,
     }
-    if a_type == "single":
-        new_answer["selectedAnswer"] = answer_data.get("selectedAnswer")
-    elif a_type == "multiple":
-        new_answer["selectedAnswers"] = answer_data.get("selectedAnswers") or []
-    elif a_type == "text":
-        new_answer["textAnswer"] = answer_data.get("textAnswer")
-
-    answers.append(new_answer)
-    _collection().update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"answers": answers, "updatedAt": now_utc_iso()}},
-    )
-    updated = _collection().find_one({"_id": doc["_id"]})
-    test = _get_test_document(doc.get("testId"))
-    return {"success": True, "attempt": _serialize_attempt(updated, test, include_questions=True)}
 
 
 def submit_attempt(attempt_id, student_id):

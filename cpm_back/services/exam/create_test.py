@@ -16,10 +16,14 @@ def create_test(test_data):
 
 
 def update_test(test_id, test_data):
+    from cpm_back.services.exam.test_definition_cache import invalidate_test_cache
+
     db = get_mongo_db()
     tests_collection = db.tests
     test_data["updatedAt"] = datetime.utcnow().isoformat() + "Z"
     result = tests_collection.update_one({"_id": ObjectId(test_id)}, {"$set": test_data})
+    if result.modified_count > 0:
+        invalidate_test_cache(test_id)
     return result.modified_count > 0
 
 
