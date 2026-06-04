@@ -15,6 +15,7 @@ from cpm_back.services.class_days import (
     delete_attendance,
     get_attendance_by_class_day,
     get_student_class_day_attendance,
+    get_attendance_report,
 )
 
 class_days_bp = Blueprint("class_days", __name__, url_prefix="/api")
@@ -40,6 +41,21 @@ def class_days_create(current_user=None):
     if not date_str:
         return jsonify({"status": False, "error": "Поле date обязательно (YYYY-MM-DD)"}), 400
     return jsonify(create_class_day(date_str, data.get("comment")))
+
+
+@class_days_bp.route("/attendance-report", methods=["GET"])
+@require_role("admin")
+def attendance_report(current_user=None):
+    """
+    Журнал посещаемости за период (дни занятий, студенты, записи).
+    Query: ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD (оба обязательны, макс. 366 дней).
+    """
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    result = get_attendance_report(date_from, date_to)
+    if not result.get("status"):
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 @class_days_bp.route("/class-days", methods=["GET"])

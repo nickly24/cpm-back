@@ -11,6 +11,7 @@ from cpm_back.services.serv import (
     get_zap_by_id,
     process_zap,
     retry_zap_date,
+    unlink_zap_date,
 )
 
 zaps_bp = Blueprint('zaps', __name__, url_prefix='/api')
@@ -125,4 +126,11 @@ def process(current_user=None):
 @require_role('admin')
 def retry_zap_date_route(zap_date_id, current_user=None):
     result = retry_zap_date(zap_date_id)
+    return jsonify(result), 200 if result.get('status') else 400
+
+
+@zaps_bp.route('/zap-dates/<int:zap_date_id>/unlink', methods=['POST'])
+@require_role('admin')
+def unlink_zap_date_route(zap_date_id, current_user=None):
+    result = unlink_zap_date(zap_date_id)
     return jsonify(result), 200 if result.get('status') else 400

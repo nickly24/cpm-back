@@ -12,6 +12,7 @@ from .class_day_attendance import (
     get_attendance_by_class_day,
     get_student_class_day_attendance,
 )
+from .attendance_report import get_attendance_report
 
 __all__ = [
     "get_all_attendance_types",
@@ -24,4 +25,5 @@ __all__ = [
     "delete_attendance",
     "get_attendance_by_class_day",
     "get_student_class_day_attendance",
+    "get_attendance_report",
 ]

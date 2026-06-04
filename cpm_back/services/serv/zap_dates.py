@@ -284,6 +284,86 @@ def retry_zap_date(zap_date_id):
             close_db_connection(connection)
 
 
+def unlink_zap_date(zap_date_id):
+    """
+    Отвязывает дату отгула от посещаемости: удаляет class_day_attendance при linked,
+    сбрасывает zap_dates в pending.
+    """
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT zd.id, zd.status, zd.class_day_id, z.student_id
+            FROM zap_dates zd
+            JOIN zaps z ON z.id = zd.zap_id
+            WHERE zd.id = %s
+            """,
+            (zap_date_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {"status": False, "error": "Запись даты не найдена"}
+
+        _, date_status, class_day_id, student_id = row
+        removed_attendance = False
+
+        if date_status == "linked" and class_day_id:
+            cursor.execute(
+                """
+                DELETE FROM class_day_attendance
+                WHERE class_day_id = %s AND student_id = %s
+                """,
+                (class_day_id, student_id),
+            )
+            removed_attendance = cursor.rowcount > 0
+
+        cursor.execute(
+            """
+            UPDATE zap_dates
+            SET status = 'pending',
+                class_day_id = NULL,
+                linked_at = NULL,
+                error_code = NULL,
+                error_message = NULL
+            WHERE id = %s
+            """,
+            (zap_date_id,),
+        )
+        connection.commit()
+
+        cursor.execute(
+            """
+            SELECT id, zap_id, date, status, class_day_id,
+                   error_code, error_message, linked_at, last_retry_at, created_at
+            FROM zap_dates
+            WHERE id = %s
+            """,
+            (zap_date_id,),
+        )
+        updated_row = cursor.fetchone()
+        zap_date = _row_to_zap_date_dict(updated_row)
+
+        if removed_attendance:
+            message = "Дата отгула отвязана, запись посещаемости удалена"
+        elif date_status == "linked":
+            message = "Дата отгула отвязана"
+        else:
+            message = "Дата отгула сброшена в ожидание привязки"
+
+        return {"status": True, "zap_date": zap_date, "message": message}
+
+    except Exception as err:
+        if connection:
+            connection.rollback()
+        return {"status": False, "error": str(err)}
+
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
 def fetch_zap_dates_map(cursor, zap_ids):
     """
     Загружает даты по списку zap_id.
