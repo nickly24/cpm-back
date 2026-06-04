@@ -43,8 +43,13 @@ sequenceDiagram
     participant UI
     participant API
 
-    UI->>API: GET /tests/{direction}/with-sessions
-    API-->>UI: tests + sessions + serverTimeMoscow + activeAttempt
+    UI->>API: GET /tests/student/available?page=1&limit=5
+    API-->>UI: доступные тесты (все направления), pagination
+
+    opt Полный каталог
+        UI->>API: GET /tests/{direction}/with-sessions?page=1&limit=5
+        API-->>UI: tests + sessions + pagination + serverTimeMoscow
+    end
 
     alt Новый тест (canStart)
         UI->>API: POST /test-attempt/start { testId }
@@ -134,18 +139,33 @@ GET /directions
 
 ---
 
+### `GET /tests/student/available`
+
+| | |
+|--|--|
+| Auth | **только student** (иначе 403) |
+| Query | `page` (default 1), `limit` (default **5**, max 50) |
+| Ответ | `{ success, tests, sessions, pagination, serverTimeMoscow, totalActionable }` |
+
+В `tests` только тесты с `canStart`, `canResume` или `canSubmitExpired` (по всем направлениям). У каждого теста есть `directionName`. Сортировка: истёкшие на отправку → продолжить → начать → по `endDate`.
+
+**Рекомендация:** первый экран раздела «Тесты» в `new_frontend` — этот эндпоинт; полный каталог — по кнопке «Смотреть все».
+
+---
+
 ### `GET /tests/<direction>/with-sessions`
 
 | | |
 |--|--|
 | Auth | **только student** (иначе 403) |
-| Ответ | `{ tests, sessions, serverTimeMoscow }` |
+| Query | `page` (default 1), `limit` (default **5**, max 50) |
+| Ответ | `{ success, tests, sessions, pagination, counts, serverTimeMoscow }` |
 
 `serverTimeMoscow` — ISO время сервера (Europe/Moscow), для UI статусов «скоро» / «пропущен».
 
-У каждой сессии в `sessions` может быть вложенный `stats` (если удалось посчитать).
+В `sessions` только сессии тестов **текущей страницы**; у сданных на странице есть `stats`.
 
-**Рекомендация:** главный экран списка тестов студента — этот эндпоинт.
+**Рекомендация:** каталог по направлению (после «Смотреть все»), не грузить без `page`/`limit` весь список.
 
 ---
 
@@ -539,7 +559,8 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 |-------|------|------|------------|
 | GET | `/directions` | — | Справочник направлений |
 | GET | `/tests/:direction` | auth | Список тестов (+ флаги, activeAttempt) |
-| GET | `/tests/:direction/with-sessions` | student | Список + сессии + время сервера |
+| GET | `/tests/student/available` | student | Доступные тесты (все направления), page/limit |
+| GET | `/tests/:direction/with-sessions` | student | Каталог по направлению, page/limit (default 5) |
 | GET | `/external-tests/direction/:direction_id` | auth | Внешние тесты |
 | GET | `/external-tests/student/:sid/direction/:did` | self/admin | Внешние + результаты студента |
 | POST | `/test-attempt/start` | student | Начать / продолжить попытку |
@@ -572,7 +593,7 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 ## 8. Миграция `Tests.js` (чеклист)
 
-1. **Список:** оставить `GET /tests/:direction/with-sessions`; использовать `canStart`, `canResume`, `activeAttempt`, `serverTimeMoscow` вместо только локальной логики.
+1. **Список:** вход — `GET /tests/student/available?page=&limit=5`; каталог — `GET /tests/:direction/with-sessions` с теми же query; использовать `canStart`, `canResume`, `activeAttempt`, `serverTimeMoscow`.
 2. **Старт:** `POST /test-attempt/start` вместо `GET /test/:id` + localStorage.
 3. **Таймер:** UI = `remainingSeconds` с сервера (периодический `GET /test-attempt/:id` или polling `active` — по желанию; при submit проверяется снова).
 4. **Ответы:** `PATCH .../answer` при переходе «Далее» / фиксации вопроса; не копить массив только в LS.

@@ -33,6 +33,11 @@ from cpm_back.services.exam.get_external_tests import (
 )
 from cpm_back.services.exam.session_review import build_session_review
 from cpm_back.services.exam.test_attempts import get_pending_attempt_summary
+from cpm_back.services.exam.student_tests_catalog import (
+    STUDENT_DEFAULT_LIMIT,
+    build_available_tests_response,
+    build_direction_tests_response,
+)
 from cpm_back.services.exam.test_admin_monitoring import (
     delete_test_session_admin,
     get_test_admin_overview,
@@ -49,6 +54,20 @@ MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 def _now_moscow():
     """Текущее время по Москве. Используется для проверки доступности тестов (даты start/end в БД — по Москве)."""
     return datetime.now(MOSCOW_TZ).replace(tzinfo=None)
+
+
+@tests_bp.route('/tests/student/available', methods=['GET'])
+@require_auth
+def student_available_tests(current_user=None):
+    """Доступные сейчас тесты студента (все направления), с пагинацией."""
+    role = (current_user or {}).get("role")
+    student_id = (current_user or {}).get("id")
+    if role != "student" or not student_id:
+        return jsonify({"error": "Доступно только для студента"}), 403
+
+    page = request.args.get("page", type=int, default=1)
+    limit = request.args.get("limit", type=int, default=STUDENT_DEFAULT_LIMIT)
+    return jsonify(build_available_tests_response(student_id, page, limit))
 
 
 @tests_bp.route('/tests/<direction>', methods=['GET'])
@@ -198,105 +217,15 @@ def tests_by_direction(direction, current_user=None):
 @tests_bp.route('/tests/<direction>/with-sessions', methods=['GET'])
 @require_auth
 def tests_by_direction_with_sessions(direction, current_user=None):
-    """Тесты по направлению + все тест-сессии текущего студента в одном ответе (только для студентов)."""
+    """Тесты по направлению + сессии на текущей странице (студент, пагинация по умолчанию 5)."""
     role = (current_user or {}).get("role")
     student_id = (current_user or {}).get("id")
     if role != "student" or not student_id:
         return jsonify({"error": "Доступно только для студента"}), 403
 
-    def _to_dt(value):
-        if not value:
-            return None
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
-            except Exception:
-                return None
-        return None
-
-    def _with_flags(test_item, completed_ids):
-        is_external = bool(test_item.get("isExternal") or test_item.get("externalTest"))
-        now = _now_moscow()
-        start_dt = _to_dt(test_item.get("startDate"))
-        end_dt = _to_dt(test_item.get("endDate"))
-        is_completed = str(test_item.get("id")) in completed_ids
-        is_upcoming = (not is_external) and start_dt is not None and now < start_dt
-        is_active = (not is_external) and start_dt is not None and end_dt is not None and (start_dt <= now <= end_dt)
-        is_missed = (not is_external) and end_dt is not None and now > end_dt and not is_completed
-        can_start = (not is_external) and is_active and (not is_completed)
-        can_practice = (not is_external) and is_completed
-        can_view_results = is_completed and bool(test_item.get("visible"))
-        status = "external"
-        if not is_external:
-            if is_completed:
-                status = "completed"
-            elif is_active:
-                status = "available"
-            elif is_upcoming:
-                status = "upcoming"
-            else:
-                status = "missed"
-        enriched = dict(test_item)
-        enriched.update({
-            "isCompleted": is_completed,
-            "isUpcoming": is_upcoming,
-            "isActive": is_active,
-            "isMissed": is_missed,
-            "status": status,
-            "canStart": can_start,
-            "canPractice": can_practice,
-            "canViewResults": can_view_results,
-            "isExternal": is_external,
-        })
-        return enriched
-
-    internal_tests = get_tests_by_direction(direction)
-    internal_tests = [t for t in internal_tests if t.get("published", True)]
-    directions = get_directions()
-    direction_obj = next((d for d in directions if d.get('name') == direction), None)
-    external_tests = []
-    completed_ids = set()
-
-    try:
-        sessions = get_test_sessions_by_student(student_id)
-        completed_ids = {str(s.get("testId")) for s in sessions if s.get("testId")}
-        for s in sessions:
-            stats = get_test_session_stats(s["id"])
-            s["stats"] = stats
-    except Exception:
-        sessions = []
-
-    if direction_obj:
-        direction_id = direction_obj.get('id')
-        try:
-            student_id_int = int(student_id) if student_id else None
-            external_tests = get_external_tests_with_results_by_student(direction_id, student_id_int)
-            for t in external_tests:
-                if t.get("hasResult") and t.get("id"):
-                    completed_ids.add(str(t.get("id")))
-        except Exception:
-            pass
-
-    combined = []
-    for t in (internal_tests + external_tests):
-        item = _with_flags(t, completed_ids)
-        if not item.get('isExternal'):
-            pending = get_pending_attempt_summary(student_id, item.get('id'))
-            if pending:
-                item['activeAttempt'] = pending
-                item['canSubmitExpired'] = bool(pending.get('expired'))
-                item['canResume'] = (
-                    not pending.get('expired')
-                    and pending.get('remainingSeconds', 0) > 0
-                )
-                if item.get('canResume') or item.get('canSubmitExpired'):
-                    item['canStart'] = False
-        combined.append(item)
-    server_time_moscow = datetime.now(MOSCOW_TZ).isoformat()
-    return jsonify({"tests": combined, "sessions": sessions, "serverTimeMoscow": server_time_moscow})
+    page = request.args.get("page", type=int, default=1)
+    limit = request.args.get("limit", type=int, default=STUDENT_DEFAULT_LIMIT)
+    return jsonify(build_direction_tests_response(student_id, direction, page, limit))
 
 
 @tests_bp.route('/test/<test_id>', methods=['GET'])
