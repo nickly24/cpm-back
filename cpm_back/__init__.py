@@ -27,6 +27,7 @@ from .blueprints import (
     exams_bp,
     external_tests_bp,
     ratings_bp,
+    user_import_bp,
 )
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
@@ -104,6 +105,12 @@ def create_app():
     except Exception as exc:
         logger.warning("recover_stale_rating_jobs: %s", exc)
 
+    try:
+        from cpm_back.services.user_import.import_jobs import recover_stale_user_import_jobs
+        recover_stale_user_import_jobs()
+    except Exception as exc:
+        logger.warning("recover_stale_user_import_jobs: %s", exc)
+
     @app.before_request
     def log_request():
         request.start_time = time.time()
@@ -150,5 +157,6 @@ def create_app():
     app.register_blueprint(exams_bp)
     app.register_blueprint(external_tests_bp)
     app.register_blueprint(ratings_bp)
+    app.register_blueprint(user_import_bp)
 
     return app
