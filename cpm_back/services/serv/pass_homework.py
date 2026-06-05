@@ -1,7 +1,7 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 import datetime
 
-def pass_homework(session_id, date_pass, student_id=None, homework_id=None):
+def pass_homework(session_id, date_pass, student_id=None, homework_id=None, result=None):
     connection = None
     try:
         connection = get_db_connection()
@@ -33,13 +33,23 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None):
 
         deadline = homework["deadline"]
 
-        # 3. Считаем просрочку
-        result = 100
-        if date_pass > deadline:
-            delta_days = (date_pass - deadline).days
-            result -= delta_days * 5
+        # 3. Балл: вручную или авто по дедлайну
+        if result is not None:
+            try:
+                result = int(result)
+            except (TypeError, ValueError):
+                return {"status": False, "error": "invalid_result"}
             if result < 0:
                 result = 0
+            if result > 100:
+                result = 100
+        else:
+            result = 100
+            if date_pass > deadline:
+                delta_days = (date_pass - deadline).days
+                result -= delta_days * 5
+                if result < 0:
+                    result = 0
 
         # 4. Обновляем или создаем homework_session
         if session_id:

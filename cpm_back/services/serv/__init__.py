@@ -17,6 +17,7 @@ from .get_homeworks import get_homeworks, get_homeworks_paginated
 from .get_homework_sessions_bygroupid import get_proctor_homework_sessions
 from .student_homework import get_student_homework_dashboard
 from .pass_homework import pass_homework
+from .pass_homework_bulk import pass_homework_bulk
 from .add_homework import create_homework_and_sessions
 from .delete_homework import delete_homework
 from .homework_admin import (
@@ -81,6 +82,7 @@ __all__ = [
     'get_proctor_homework_sessions',
     'get_student_homework_dashboard',
     'pass_homework',
+    'pass_homework_bulk',
     'create_homework_and_sessions',
     'delete_homework',
     'get_homework_by_id',

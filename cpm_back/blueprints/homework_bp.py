@@ -10,6 +10,7 @@ from cpm_back.services.serv import (
     get_homeworks_paginated,
     get_proctor_homework_sessions,
     pass_homework,
+    pass_homework_bulk,
     get_student_homework_dashboard,
     create_homework_and_sessions,
     delete_homework,
@@ -72,8 +73,34 @@ def pass_hw(current_user=None):
     session_id = data.get('sessionId')
     student_id = data.get('studentId')
     homework_id = data.get('homeworkId')
-    answer = pass_homework(session_id, date_object, student_id, homework_id)
+    manual_result = data.get('result')
+    answer = pass_homework(session_id, date_object, student_id, homework_id, manual_result)
     return jsonify(answer)
+
+
+@homework_bp.route('/pass_homework_bulk', methods=['POST'])
+@require_role('admin', 'proctor')
+def pass_hw_bulk(current_user=None):
+    data = request.get_json() or {}
+    date_pass = data.get('datePass')
+    homework_id = data.get('homeworkId')
+    proctor_id = data.get('proctorId')
+    if not date_pass or not homework_id or not proctor_id:
+        return jsonify({'status': False, 'error': 'datePass, homeworkId и proctorId обязательны'}), 400
+    try:
+        date_object = datetime.date.fromisoformat(str(date_pass)[:10])
+        homework_id = int(homework_id)
+        proctor_id = int(proctor_id)
+    except (ValueError, TypeError) as exc:
+        return jsonify({'status': False, 'error': str(exc)}), 400
+    manual_result = data.get('result')
+    if manual_result is not None:
+        try:
+            manual_result = int(manual_result)
+        except (TypeError, ValueError):
+            return jsonify({'status': False, 'error': 'invalid_result'}), 400
+    answer = pass_homework_bulk(proctor_id, homework_id, date_object, manual_result)
+    return jsonify(answer), 200 if answer.get('status') else 400
 
 
 @homework_bp.route('/get-homeworks-student', methods=['POST'])

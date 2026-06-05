@@ -13,6 +13,21 @@ def edit_homework_session(session_id, result=None, date_pass=None, status=None):
         if not session:
             return {"status": False, "error": "session_not_found"}
 
+        if status is not None:
+            try:
+                status_val = int(status)
+            except (TypeError, ValueError):
+                return {"status": False, "error": "invalid_status"}
+            if status_val not in (0, 1):
+                return {"status": False, "error": "invalid_status"}
+            if status_val == 0:
+                cursor.execute(
+                    "UPDATE homework_sessions SET status = 0, result = 0, date_pass = NULL WHERE id = %s",
+                    (session_id,),
+                )
+                connection.commit()
+                return {"status": True, "result": 0, "date_pass": None}
+
         # Готовим набор обновляемых полей
         set_clauses = []
         values = []
@@ -74,18 +89,17 @@ def edit_homework_session(session_id, result=None, date_pass=None, status=None):
             
             if homework_data:
                 deadline = homework_data["deadline"]
-                
-                # Пересчитываем баллы по той же логике
-                result = 100
-                if date_val > deadline:
-                    delta_days = (date_val - deadline).days
-                    result -= delta_days * 5
-                    if result < 0:
-                        result = 0
-                
-                # Добавляем обновление результата
-                set_clauses.append("result = %s")
-                values.append(result)
+
+                # Пересчёт по дате только если балл не задан вручную в этом запросе
+                if result is None:
+                    auto_result = 100
+                    if date_val > deadline:
+                        delta_days = (date_val - deadline).days
+                        auto_result -= delta_days * 5
+                        if auto_result < 0:
+                            auto_result = 0
+                    set_clauses.append("result = %s")
+                    values.append(auto_result)
 
             set_clauses.append("date_pass = %s")
             values.append(date_val)
