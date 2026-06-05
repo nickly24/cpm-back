@@ -2,7 +2,51 @@
 Расчёт рейтинга студентов: ДЗ, экзамены, тесты (MySQL + MongoDB).
 Использует переданные mysql_conn и mongo_db (пул/клиент приложения).
 """
-from datetime import datetime
+from datetime import date, datetime
+
+
+def _coerce_rating_date(value) -> datetime:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d")
+
+
+def _parse_test_start_date(raw) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        text = str(raw).strip()
+        if "T" in text:
+            return datetime.fromisoformat(text.replace("Z", "+00:00").replace("+00:00", ""))
+        return datetime.strptime(text[:10], "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+
+
+def _test_start_in_period(test, date_from_dt: datetime, date_to_dt: datetime) -> bool:
+    start = _parse_test_start_date(test.get("startDate"))
+    if not start:
+        return False
+    return date_from_dt <= start <= date_to_dt
+
+
+def _is_mongo_test_eligible_for_rating(test, date_from_dt: datetime, date_to_dt: datetime) -> bool:
+    """Только опубликованные и активные тесты (как в каталоге для студентов)."""
+    if test.get("published") is False:
+        return False
+    if test.get("isActive") is False:
+        return False
+    return _test_start_in_period(test, date_from_dt, date_to_dt)
+
+
+def _normalize_direction_label(name: str | None) -> str:
+    return (name or "Неизвестное направление").strip() or "Неизвестное направление"
+
+
+def _direction_group_key(name: str | None) -> str:
+    return _normalize_direction_label(name).casefold()
 
 
 def calculate_homework_rating(mysql_conn, student_id, date_from, date_to):
@@ -72,11 +116,17 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
     cursor.execute("SELECT id, name FROM directions")
     directions = {d['id']: d['name'] for d in cursor.fetchall()}
     cursor.close()
-    student_sessions = {}
+
+    student_sessions: dict[str, float] = {}
+    sid_int = int(student_id) if student_id is not None else None
+    sid_str = str(student_id)
     for session in test_sessions_collection.find(
-        {"studentId": str(student_id)}, {"testId": 1, "score": 1}
+        {"studentId": {"$in": [sid_int, sid_str]}},
+        {"testId": 1, "score": 1},
     ):
-        student_sessions[session['testId']] = session.get('score', 0)
+        score = session.get("score", 0)
+        student_sessions[str(session["testId"])] = float(score) if score is not None else 0.0
+
     cursor = mysql_conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT t.id, t.name, t.direction_id, t.date, ts.rate
@@ -87,59 +137,87 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
     """, (student_id, date_from, date_to))
     external_tests = cursor.fetchall()
     cursor.close()
-    date_from_dt = datetime.strptime(date_from, "%Y-%m-%d")
-    date_to_dt = datetime.strptime(date_to, "%Y-%m-%d")
-    all_mongo_tests = list(tests_collection.find({}))
-    mongo_tests = []
-    for test in all_mongo_tests:
-        start_date_str = test.get('startDate', '')
-        if start_date_str:
-            try:
-                if 'T' in start_date_str:
-                    start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00').replace('+00:00', ''))
-                else:
-                    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-                if date_from_dt <= start_date <= date_to_dt:
-                    mongo_tests.append(test)
-            except Exception:
-                pass
-    directions_dict = {}
-    for test in mongo_tests:
-        direction = test.get('direction', 'Неизвестное направление')
-        test_id = str(test['_id'])
-        test_title = test.get('title', 'Без названия')
-        score = student_sessions.get(test_id, 0)
-        if direction not in directions_dict:
-            directions_dict[direction] = {'tests': [], 'scores': []}
-        directions_dict[direction]['tests'].append({'test_id': test_id, 'title': test_title, 'score': score, 'source': 'MongoDB'})
-        directions_dict[direction]['scores'].append(score)
+
+    date_from_dt = _coerce_rating_date(date_from)
+    date_to_dt = _coerce_rating_date(date_to)
+
+    mongo_tests_by_id = {str(test["_id"]): test for test in tests_collection.find({})}
+
+    # direction_key -> {label, tests[], scores[]}
+    directions_dict: dict[str, dict] = {}
+    flat_scores: list[float] = []
+
+    def _append_test(direction_name, test_id, test_title, score, source):
+        key = _direction_group_key(direction_name)
+        label = _normalize_direction_label(direction_name)
+        bucket = directions_dict.setdefault(
+            key,
+            {"label": label, "tests": [], "scores": []},
+        )
+        if not bucket["label"]:
+            bucket["label"] = label
+        bucket["tests"].append(
+            {
+                "test_id": test_id,
+                "title": test_title,
+                "score": score,
+                "source": source,
+            },
+        )
+        bucket["scores"].append(score)
+        flat_scores.append(score)
+
+    # MongoDB: только фактически сданные тесты в периоде (есть test_session).
+    # Иначе все активные тесты платформы в периоде размывают средний нулями.
+    for test_id, score in student_sessions.items():
+        test = mongo_tests_by_id.get(test_id)
+        if not test or not _test_start_in_period(test, date_from_dt, date_to_dt):
+            continue
+        _append_test(
+            test.get("direction"),
+            test_id,
+            test.get("title", "Без названия"),
+            score,
+            "MongoDB",
+        )
+
     for test in external_tests:
-        direction_id = test.get('direction_id')
-        direction_name = directions.get(direction_id, f'Направление ID {direction_id}')
-        test_id = f"external_{test['id']}"
-        test_title = test.get('name', 'Без названия')
-        score = float(test.get('rate', 0)) if test.get('rate') is not None else 0
-        if direction_name not in directions_dict:
-            directions_dict[direction_name] = {'tests': [], 'scores': []}
-        directions_dict[direction_name]['tests'].append({'test_id': test_id, 'title': test_title, 'score': score, 'source': 'MySQL (внешний)'})
-        directions_dict[direction_name]['scores'].append(score)
-    direction_averages = {}
-    all_tests_details = []
-    for direction, data in directions_dict.items():
-        tests_count = len(data['scores'])
-        total_score = sum(data['scores'])
-        avg_score = total_score / tests_count if tests_count > 0 else 0
-        direction_averages[direction] = avg_score
-        for test_info in data['tests']:
-            all_tests_details.append({
-                'direction': direction, 'test_id': test_info['test_id'],
-                'title': test_info['title'], 'score': test_info['score'], 'source': test_info['source']
-            })
-    overall_average = sum(direction_averages.values()) / len(direction_averages) if direction_averages else 0
-    total_tests_count = sum(len(data['scores']) for data in directions_dict.values())
+        direction_id = test.get("direction_id")
+        direction_name = directions.get(direction_id, f"Направление ID {direction_id}")
+        score = float(test.get("rate", 0)) if test.get("rate") is not None else 0.0
+        _append_test(
+            direction_name,
+            f"external_{test['id']}",
+            test.get("name", "Без названия"),
+            score,
+            "MySQL (внешний)",
+        )
+
+    direction_averages: dict[str, float] = {}
+    all_tests_details: list[dict] = []
+    for bucket in directions_dict.values():
+        label = bucket["label"]
+        scores = bucket["scores"]
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+        direction_averages[label] = avg_score
+        for test_info in bucket["tests"]:
+            all_tests_details.append(
+                {
+                    "direction": label,
+                    "test_id": test_info["test_id"],
+                    "title": test_info["title"],
+                    "score": test_info["score"],
+                    "source": test_info["source"],
+                },
+            )
+
+    overall_average = sum(flat_scores) / len(flat_scores) if flat_scores else 0.0
+    total_tests_count = len(flat_scores)
     return {
-        'average': overall_average, 'total_count': total_tests_count,
-        'directions': direction_averages, 'details': all_tests_details
+        'average': overall_average,
+        'total_count': total_tests_count,
+        'directions': direction_averages,
+        'details': all_tests_details,
     }
 
 
