@@ -12,6 +12,7 @@ from cpm_back.services.exam.rating_recalc_jobs import (
     get_recalc_job,
     list_recalc_jobs,
 )
+from cpm_back.services.exam.ratings_report import get_ratings_report
 
 ratings_bp = Blueprint('ratings', __name__, url_prefix='')
 
@@ -42,6 +43,18 @@ def _format_ratings(rows):
             'final': float(r['final']) if r['final'] is not None else 0
         })
     return formatted
+
+
+@ratings_bp.route('/ratings-report', methods=['GET'])
+@require_role('admin', 'supervisor')
+def ratings_report(current_user=None):
+    try:
+        result = get_ratings_report()
+        if not result.get('status'):
+            return jsonify(result), 400
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": False, "error": str(e)}), 500
 
 
 @ratings_bp.route('/get-all-ratings', methods=['GET'])
