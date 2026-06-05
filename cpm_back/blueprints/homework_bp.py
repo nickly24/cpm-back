@@ -178,14 +178,31 @@ def homework_students(current_user=None):
 @homework_bp.route('/edit-homework-session', methods=['POST'])
 @require_role('admin', 'proctor')
 def edit_session(current_user=None):
-    data = request.get_json()
-    if not data.get('sessionId'):
-        return jsonify({'error': 'Поле "sessionId" обязательно'}), 400
+    data = request.get_json() or {}
+    session_id = data.get('sessionId')
+    student_id = data.get('studentId')
+    homework_id = data.get('homeworkId')
+
+    if not session_id and (student_id is None or homework_id is None):
+        return jsonify({'status': False, 'error': 'sessionId или studentId+homeworkId обязательны'}), 400
+
+    try:
+        if session_id is not None:
+            session_id = int(session_id)
+        if student_id is not None:
+            student_id = int(student_id)
+        if homework_id is not None:
+            homework_id = int(homework_id)
+    except (TypeError, ValueError):
+        return jsonify({'status': False, 'error': 'invalid_ids'}), 400
+
     answer = edit_homework_session(
-        session_id=data.get('sessionId'),
+        session_id=session_id,
         result=data.get('result'),
         date_pass=data.get('datePass'),
-        status=data.get('status')
+        status=data.get('status'),
+        student_id=student_id,
+        homework_id=homework_id,
     )
     return jsonify(answer), 200 if answer.get('status') else 400
 

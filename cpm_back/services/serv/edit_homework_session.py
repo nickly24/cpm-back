@@ -2,11 +2,28 @@ from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from datetime import datetime, date
 
 
-def edit_homework_session(session_id, result=None, date_pass=None, status=None):
+def edit_homework_session(session_id, result=None, date_pass=None, status=None, student_id=None, homework_id=None):
     connection = None
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+
+        if not session_id and student_id is not None and homework_id is not None:
+            cursor.execute(
+                """
+                SELECT id FROM homework_sessions
+                WHERE student_id = %s AND homework_id = %s
+                LIMIT 1
+                """,
+                (student_id, homework_id),
+            )
+            row = cursor.fetchone()
+            if row:
+                session_id = row["id"]
+
+        if not session_id:
+            return {"status": False, "error": "session_not_found"}
+
         # Проверяем, что сессия существует
         cursor.execute("SELECT * FROM homework_sessions WHERE id = %s", (session_id,))
         session = cursor.fetchone()

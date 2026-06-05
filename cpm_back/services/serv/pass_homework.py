@@ -60,6 +60,7 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
                 WHERE id = %s
             """
             cursor.execute(update_query, (result, date_pass, session_id))
+            saved_session_id = session_id
         else:
             # Если сессии нет, создаем новую
             insert_query = """
@@ -67,11 +68,12 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
                 VALUES (1, %s, %s, %s, %s)
             """
             cursor.execute(insert_query, (result, homework_id, student_id, date_pass))
+            saved_session_id = cursor.lastrowid
         
         connection.commit()
 
         print(f"Оценка выставлена: {result} баллов")
-        return {"status": True, "result": result}
+        return {"status": True, "result": result, "sessionId": saved_session_id}
 
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
