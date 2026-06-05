@@ -167,12 +167,13 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
         bucket["scores"].append(score)
         flat_scores.append(score)
 
-    # MongoDB: только фактически сданные тесты в периоде (есть test_session).
-    # Иначе все активные тесты платформы в периоде размывают средний нулями.
-    for test_id, score in student_sessions.items():
-        test = mongo_tests_by_id.get(test_id)
-        if not test or not _test_start_in_period(test, date_from_dt, date_to_dt):
+    # MongoDB: все опубликованные/активные тесты со startDate в периоде.
+    # Нет test_session → 0 (пропуск теста учитывается в среднем).
+    for test in mongo_tests_by_id.values():
+        if not _is_mongo_test_eligible_for_rating(test, date_from_dt, date_to_dt):
             continue
+        test_id = str(test["_id"])
+        score = student_sessions.get(test_id, 0.0)
         _append_test(
             test.get("direction"),
             test_id,
