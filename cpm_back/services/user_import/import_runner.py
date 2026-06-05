@@ -280,21 +280,23 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
             else:
                 base_row["message"] = "Без группы"
 
+            tg_name = ""
+
             if schools_schema:
                 cursor.execute(
                     """
                     INSERT INTO students (full_name, class, group_id, school_id, tg_name)
-                    VALUES (%s, %s, %s, %s, NULL)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    (student["full_name"], class_number, group_id, school_id),
+                    (student["full_name"], class_number, group_id, school_id, tg_name),
                 )
             else:
                 cursor.execute(
                     """
                     INSERT INTO students (full_name, class, group_id, tg_name)
-                    VALUES (%s, %s, %s, NULL)
+                    VALUES (%s, %s, %s, %s)
                     """,
-                    (student["full_name"], class_number, group_id),
+                    (student["full_name"], class_number, group_id, tg_name),
                 )
 
             student_id = cursor.lastrowid

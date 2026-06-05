@@ -66,6 +66,12 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
             login = f"{base_login}{counter}"
             counter += 1
         
+        # tg_name в БД NOT NULL — пустая строка, если не передан
+        if tg_name is None:
+            tg_name = ""
+        else:
+            tg_name = str(tg_name).strip()
+
         # Генерируем пароль (8 символов: буквы + цифры)
         password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
         
