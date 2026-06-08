@@ -44,7 +44,7 @@ def class_days_create(current_user=None):
 
 
 @class_days_bp.route("/attendance-report", methods=["GET"])
-@require_role("admin")
+@require_role("admin", "supervisor")
 def attendance_report(current_user=None):
     """
     Журнал посещаемости за период (дни занятий, студенты, записи).
