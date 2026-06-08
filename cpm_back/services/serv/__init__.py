@@ -12,6 +12,9 @@ from .get_attendance import get_attendance_diary
 from .add_attendance import add_attendance
 from .get_users_by_role import get_users_by_role
 from .delete_user import delete_user
+from .add_staff_user import add_staff_user
+from .edit_staff_user import edit_staff_user
+from .reset_staff_password import reset_staff_password
 from .get_student_by_id import get_student_by_id
 from .get_homeworks import get_homeworks, get_homeworks_paginated
 from .get_homework_sessions_bygroupid import get_proctor_homework_sessions
@@ -76,6 +79,9 @@ __all__ = [
     'add_attendance',
     'get_users_by_role',
     'delete_user',
+    'add_staff_user',
+    'edit_staff_user',
+    'reset_staff_password',
     'get_student_by_id',
     'get_homeworks',
     'get_homeworks_paginated',
