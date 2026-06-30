@@ -516,10 +516,16 @@ def patch_answers_batch(attempt_id, student_id, answers_list):
     skipped = []
     errors = []
     any_changed = False
+    seen_question_ids = set()
 
     for item in answers_list:
-        doc, err, changed, idempotent = _apply_answer_to_doc(doc, item)
         qid = item.get("questionId")
+        if qid in seen_question_ids:
+            skipped.append(qid)
+            continue
+        seen_question_ids.add(qid)
+
+        doc, err, changed, idempotent = _apply_answer_to_doc(doc, item)
         if err:
             errors.append({"questionId": qid, "error": err})
             continue

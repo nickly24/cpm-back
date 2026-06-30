@@ -73,10 +73,15 @@ sequenceDiagram
         или GET /test-attempt/{attemptId}
     end
 
-    loop На каждый вопрос (один раз)
-        UI->>API: PATCH /test-attempt/{id}/answer
+    loop На каждый вопрос
+        UI->>UI: сохранить ответ в IndexedDB, добавить questionId в pending
+        opt есть сеть
+            UI->>API: POST /test-attempt/{id}/answers
+            API-->>UI: syncedQuestionIds / skippedQuestionIds / errors
+        end
     end
 
+    UI->>API: POST /test-attempt/{id}/answers (flush pending)
     UI->>API: POST /test-attempt/{id}/submit
     API-->>UI: sessionId, score
 
@@ -93,11 +98,34 @@ sequenceDiagram
 | Таймер только на клиенте | `expiresAt`, `remainingSeconds` в attempt |
 | Повторное изменение ответа | **403** `answer_locked` |
 | Расчёт `score` на клиенте | Только в `submit` |
-| Хранение черновика в LS | Коллекция Mongo `test_attempts` |
+| Хранение официальной попытки в LS | Mongo `test_attempts` + локальная IndexedDB-очередь для offline-first UI |
 
 ### Тренировка (`canPractice`)
 
-На бэкенде **нет** server-side attempt для practice: `start` с practice не реализован (`practice_use_frontend_only`). Для тренировки пока оставляйте локальный режим **без** `create-test-session` (или загружайте вопросы только у admin-инструментов — не для студента).
+Тренировка тоже проходит через attempt API, но **не создаёт `test_sessions` и не влияет на рейтинг**.
+
+Для тренировки фронт вызывает тот же `POST /test-attempt/start`, но передаёт флаг:
+
+```json
+{ "testId": "507f1f77bcf86cd799439011", "isPractice": true }
+```
+
+Бэкенд разрешает practice только если официальный тест уже сдан (`test_sessions` существует). Если сдачи ещё нет, вернётся **403** `test_not_completed`.
+
+Practice-attempt хранится в Mongo `test_attempts` с `isPractice: true`, получает свой `questionOrder`, `expiresAt`, `answers` и проходит тот же immutable-процесс ответов. При `submit` бэкенд считает `score`, записывает `practiceScore` в attempt и переводит attempt в `submitted`, но **не пишет** новую запись в `test_sessions`.
+
+Результат practice в ответе:
+
+```json
+{
+  "success": true,
+  "isPractice": true,
+  "score": 80,
+  "answers": [ /* scored answers */ ],
+  "timeSpentMinutes": 12,
+  "stats": { "correctAnswers": 4, "totalQuestions": 5, "accuracy": 80, "totalPoints": 8 }
+}
+```
 
 ---
 
@@ -145,7 +173,7 @@ GET /directions
 | `isCompleted` | есть Mongo `test_sessions` (или результат внешнего) |
 | `canStart` | окно открыто и ещё не сдан |
 | `canResume` | есть `in_progress` attempt и `remainingSeconds > 0` |
-| `canPractice` | уже сдан, можно тренировку (только UI) |
+| `canPractice` | уже сдан, можно тренировку через attempt API с `isPractice: true` |
 | `canViewResults` | сдан + (`visible` или роль ≠ student) |
 | `activeAttempt` | `{ id, expiresAt, remainingSeconds, answeredCount, totalQuestions }` — только student |
 
@@ -210,12 +238,18 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 ### `POST /test-attempt/start`
 
-Создать попытку или **возобновить** существующую `in_progress`.
+Создать попытку или **возобновить** существующую `in_progress` / `expired`.
 
 **Тело:**
 
 ```json
 { "testId": "507f1f77bcf86cd799439011" }
+```
+
+Для тренировки:
+
+```json
+{ "testId": "507f1f77bcf86cd799439011", "isPractice": true }
 ```
 
 **Успех 200:**
@@ -263,7 +297,9 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | 400 | `test_has_no_questions` | пустой тест |
 | 403 | `test_not_started` / `test_ended` | вне окна Москвы |
 | 409 | `test_already_completed` | уже есть `test_sessions` |
-| 403 | `attempt_expired` | попытка истекла по таймеру |
+| 403 | `test_not_completed` | practice до официальной сдачи |
+
+Если у студента уже есть истекшая, но ещё не отправленная official-attempt, `start` вернёт её с `resumed: true`, `status: "expired"` и `remainingSeconds: 0`, чтобы фронт мог отправить сохранённые ответы.
 
 ---
 
@@ -324,13 +360,27 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 **Успех 200 / частичный 207:** `{ "success", "attempt" (лёгкий), "syncedQuestionIds", "skippedQuestionIds", "errors": [{ "questionId", "error" }] }`
 
-Принимается при `status` `in_progress` или `expired` (догон после таймера).
+Принимается при `status` `in_progress` или `expired` (догон после таймера). Это основной endpoint для оффлайн-режима: фронт хранит локальную очередь ответов и при появлении сети отправляет её пачкой.
+
+Рекомендуемая фронт-логика:
+
+1. После `start` сохранить attempt в IndexedDB вместе с пустым `pendingQuestionIds`.
+2. При переходе «Далее» валидировать ответ, записать его в локальный `attempt.answers`, пометить вопрос как `locked` и добавить `questionId` в `pendingQuestionIds`.
+3. В фоне вызывать batch sync при `online`, `focus`, старте/возобновлении attempt и периодически во время прохождения.
+4. После ответа сервера убрать из pending все `syncedQuestionIds` и `skippedQuestionIds`; ошибки оставить в pending.
+5. Перед `submit` сначала сохранить текущий черновик в IndexedDB, затем полностью досинхронизировать pending. Если pending не пустой или были ошибки, submit не выполнять.
+
+UI должен показывать очередь pending-запросов рядом со списком вопросов: номер вопроса, статус, номер попытки, последнюю ошибку и обратный отсчёт до следующей переотправки. Если отправка не удалась, фронт повторяет её автоматически каждые **10 секунд** без ограничения по количеству попыток. Ручная кнопка «Повторить» может запускать внеочередной flush, но не должна быть единственным способом восстановления.
+
+Важно: `expired` не означает, что можно добавить новые ответы. Это только режим «дослать уже сохранённое». Фронт должен блокировать редактирование при `remainingSeconds <= 0`, `timeExpired: true` или `status: "expired"`.
 
 ---
 
 ### `POST /test-attempt/<attempt_id>/submit`
 
 Финальная сдача: scoring на сервере, запись `test_sessions`, attempt → `submitted`.
+
+Для practice scoring тоже выполняется на сервере, но `test_sessions` не создаётся; attempt получает `practiceScore` и `status: "submitted"`.
 
 **Успех 200:**
 
@@ -355,12 +405,12 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 
 | HTTP | `error` | Примечание |
 |------|---------|------------|
-| 403 | `time_expired` | лимит `timeLimitMinutes` |
+| 403 | `time_expired` | лимит `timeLimitMinutes` для активной official-attempt; истекшая attempt может быть отправлена после догонки сохранённых ответов |
 | 403 | `test_not_started` / `test_ended` | окно сдачи |
 | 409 | `test_already_completed` | + `existingSessionId`, `existingScore`, `completedAt` |
 | 404 | `attempt_not_found` | |
 
-Непройденные вопросы в submit учитываются как **0 баллов** (пустых placeholder в сессии не создаётся — только ответы из attempt).
+Непройденные вопросы в submit учитываются как **0 баллов**: scoring добавляет placeholder-ответы с `points: 0` и `isCorrect: false` в порядке `questionOrder`.
 
 ---
 
@@ -581,6 +631,7 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | GET | `/test-attempt/active` | student | Активная попытка по testId |
 | GET | `/test-attempt/:id` | student | Состояние попытки |
 | PATCH | `/test-attempt/:id/answer` | student | Сохранить ответ (immutable) |
+| POST | `/test-attempt/:id/answers` | student | Пакетная синхронизация оффлайн-ответов |
 | POST | `/test-attempt/:id/submit` | student | Сдать, получить sessionId |
 | GET | `/test/:id` | admin | Полный тест с ключами |
 | POST | `/create-test` | admin | Создать тест |
@@ -608,13 +659,13 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 ## 8. Миграция `Tests.js` (чеклист)
 
 1. **Список:** вход — `GET /tests/student/available?page=&limit=5`; каталог — `GET /tests/:direction/with-sessions` с теми же query; использовать `canStart`, `canResume`, `activeAttempt`, `serverTimeMoscow`.
-2. **Старт:** `POST /test-attempt/start` вместо `GET /test/:id` + localStorage.
+2. **Старт:** `POST /test-attempt/start` вместо `GET /test/:id`; для тренировки — тот же endpoint с `isPractice: true`.
 3. **Таймер:** UI = `remainingSeconds` с сервера (периодический `GET /test-attempt/:id` или polling `active` — по желанию; при submit проверяется снова).
-4. **Ответы:** `PATCH .../answer` при переходе «Далее» / фиксации вопроса; не копить массив только в LS.
-5. **Финиш:** `POST .../submit` вместо `POST /create-test-session` и клиентского `score`.
+4. **Ответы:** для online можно `PATCH .../answer`, для текущего offline-first UI — локальная запись в IndexedDB + `POST .../answers` пачкой.
+5. **Финиш:** перед `submit` обязательно дослать pending-очередь; затем `POST .../submit` вместо `POST /create-test-session` и клиентского `score`.
 6. **Разбор:** `GET /test-session/:id/review` вместо повторного `GET /test/:id` + сравнения на клиенте; учитывать `showCorrectAnswers`.
 7. **Удалить** для официальной сдачи: shuffle/score в localStorage, вызов `create-test-session` для student.
-8. **Тренировка:** без изменений на бэке до отдельной задачи; не вызывать `start` с practice.
+8. **Тренировка:** использовать server-side practice attempt; результат показывать из ответа submit, не писать его в рейтинг.
 
 ---
 
@@ -641,7 +692,8 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | `test_has_no_questions` | 400 |
 | `test_not_started`, `test_ended` | 403 |
 | `test_already_completed` | 409 |
-| `attempt_expired`, `time_expired` | 403 |
+| `test_not_completed` | 403 |
+| `time_expired` | 403 |
 | `question_id_required`, `invalid_answer_type`, `invalid_question_id` | 400 |
 | `answer_locked` | 403 |
 | `attempt_not_found`, `attempt_not_active` | 404 |
@@ -660,4 +712,6 @@ Blueprint: `test_attempts_bp`. Все маршруты — роль **student**.
 | Логика attempt | `cpm_back/services/exam/test_attempts.py` |
 | Scoring | `cpm_back/services/exam/scoring.py` |
 | Санитизация вопросов | `cpm_back/services/exam/test_sanitize.py` |
-| Фронт (до миграции) | `cpm-app/src/cabinets/StudentFunctions/Tests.js` |
+| Фронт: экран прохождения | `cpm_front_new/components/student/tests/attempt/test-attempt-screen.tsx` |
+| Фронт: IndexedDB attempt | `cpm_front_new/lib/student/test-attempt-store.ts` |
+| Фронт: offline/batch sync | `cpm_front_new/lib/student/test-attempt-sync.ts` |
