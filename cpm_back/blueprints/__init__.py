@@ -15,6 +15,7 @@ from .exams_bp import exams_bp
 from .external_tests_bp import external_tests_bp
 from .ratings_bp import ratings_bp
 from .user_import_bp import user_import_bp
+from .test_import_bp import test_import_bp
 
 __all__ = [
     'auth_bp',
@@ -34,4 +35,5 @@ __all__ = [
     'external_tests_bp',
     'ratings_bp',
     'user_import_bp',
+    'test_import_bp',
 ]
