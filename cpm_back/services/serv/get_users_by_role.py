@@ -2,6 +2,7 @@ from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
 from .school_schema import is_schools_schema_ready
 from .staff_credentials import expose_password
+from .student_plain_credentials import ensure_student_credentials_table, serialize_student_credentials
 
 
 def _staff_row(row, include_group=False):
@@ -25,6 +26,7 @@ def get_users_by_role(role):
         cursor = connection.cursor(dictionary=True)
 
         if role == "student":
+            ensure_student_credentials_table(cursor)
             if is_schools_schema_ready(cursor):
                 cursor.execute("""
                     SELECT
@@ -34,26 +36,49 @@ def get_users_by_role(role):
                         s.school_id,
                         s.class,
                         s.tg_name,
+                        a.username AS auth_login,
+                        sc.login AS credential_login,
+                        sc.password AS credential_password,
                         sch.name AS school_name,
                         sch.short_name AS school_short_name
                     FROM students s
+                    LEFT JOIN auth_users a ON a.ref_id = s.id AND a.role = 'student'
+                    LEFT JOIN student_credentials sc ON sc.student_id = s.id
                     LEFT JOIN schools sch ON sch.id = s.school_id
                     ORDER BY s.full_name
                 """)
             else:
                 cursor.execute(
-                    "SELECT id, full_name, group_id, class, tg_name FROM students ORDER BY full_name"
+                    """
+                    SELECT
+                        s.id,
+                        s.full_name,
+                        s.group_id,
+                        s.class,
+                        s.tg_name,
+                        a.username AS auth_login,
+                        sc.login AS credential_login,
+                        sc.password AS credential_password
+                    FROM students s
+                    LEFT JOIN auth_users a ON a.ref_id = s.id AND a.role = 'student'
+                    LEFT JOIN student_credentials sc ON sc.student_id = s.id
+                    ORDER BY s.full_name
+                    """
                 )
-            result = [{
-                "id": row["id"],
-                "full_name": row["full_name"],
-                "group_id": row["group_id"],
-                "school_id": row.get("school_id"),
-                "school_name": row.get("school_name"),
-                "school_short_name": row.get("school_short_name"),
-                "class": row["class"],
-                "tg_name": row["tg_name"]
-            } for row in cursor.fetchall()]
+            result = []
+            for row in cursor.fetchall():
+                item = {
+                    "id": row["id"],
+                    "full_name": row["full_name"],
+                    "group_id": row["group_id"],
+                    "school_id": row.get("school_id"),
+                    "school_name": row.get("school_name"),
+                    "school_short_name": row.get("school_short_name"),
+                    "class": row["class"],
+                    "tg_name": row["tg_name"]
+                }
+                item.update(serialize_student_credentials(row))
+                result.append(item)
         elif role == "proctor":
             cursor.execute("""
                 SELECT

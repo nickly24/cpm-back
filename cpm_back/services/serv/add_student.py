@@ -1,5 +1,6 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.services.serv.student_credentials import generate_student_login
+from cpm_back.services.serv.student_plain_credentials import upsert_student_credentials
 from werkzeug.security import generate_password_hash
 import random
 import string
@@ -82,6 +83,7 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
         VALUES (%s, %s, %s, %s)
         """
         cursor.execute(insert_auth_query, (login, generate_password_hash(password), student_id, 'student'))
+        upsert_student_credentials(cursor, student_id, login, password)
         
         # Подтверждаем транзакцию
         connection.commit()

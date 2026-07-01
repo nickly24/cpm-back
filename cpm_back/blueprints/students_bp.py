@@ -91,7 +91,7 @@ def edit(current_user=None):
     if not data or not data.get('student_id'):
         return jsonify({"status": False, "error": "student_id обязателен"}), 400
     tg_name = data.get('tg_name')
-    if all(data.get(f) is None for f in ['full_name', 'class', 'group_id', 'tg_name']) and 'school_id' not in data:
+    if all(data.get(f) is None for f in ['full_name', 'class', 'group_id', 'tg_name', 'login', 'password']) and 'school_id' not in data:
         return jsonify({"status": False, "error": "Укажите хотя бы одно поле для обновления"}), 400
     class_number = data.get('class')
     if class_number is not None:
@@ -106,6 +106,8 @@ def edit(current_user=None):
         data.get('group_id'),
         tg_name,
         school_id=data.get('school_id') if 'school_id' in data else _UNSET,
+        login=data.get('login'),
+        password=data.get('password'),
     )
     return jsonify(answer), 200 if answer.get('status') else 400
 

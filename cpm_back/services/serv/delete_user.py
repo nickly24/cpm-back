@@ -1,4 +1,5 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
+from cpm_back.services.serv.student_plain_credentials import ensure_student_credentials_table
 
 def delete_user(role, user_id):
     connection = None
@@ -20,6 +21,11 @@ def delete_user(role, user_id):
 
         # Удаляем из сущности
         table_name = user_tables[role]
+        if role == "student":
+            ensure_student_credentials_table(cursor)
+            cursor.execute("DELETE FROM student_credentials WHERE student_id = %s", (user_id,))
+            connection.commit()
+
         delete_entity_query = f"DELETE FROM {table_name} WHERE id = %s"
         cursor.execute(delete_entity_query, (user_id,))
         connection.commit()

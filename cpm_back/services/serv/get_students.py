@@ -1,6 +1,7 @@
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
 from .school_schema import is_schools_schema_ready
+from .student_plain_credentials import ensure_student_credentials_table, serialize_student_credentials
 
 
 def _serialize_student_row(student):
@@ -19,6 +20,7 @@ def _serialize_student_row(student):
         payload["school_id"] = None
         payload["school_name"] = None
         payload["school_short_name"] = None
+    payload.update(serialize_student_credentials(student))
     return payload
 
 
@@ -27,6 +29,7 @@ def get_all_students():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        ensure_student_credentials_table(cursor)
 
         if is_schools_schema_ready(cursor):
             cursor.execute("""
@@ -37,17 +40,32 @@ def get_all_students():
                     s.school_id,
                     s.class,
                     s.tg_name,
+                    a.username AS auth_login,
+                    sc.login AS credential_login,
+                    sc.password AS credential_password,
                     sch.name AS school_name,
                     sch.short_name AS school_short_name
                 FROM students s
+                LEFT JOIN auth_users a ON a.ref_id = s.id AND a.role = 'student'
+                LEFT JOIN student_credentials sc ON sc.student_id = s.id
                 LEFT JOIN schools sch ON sch.id = s.school_id
                 ORDER BY s.full_name ASC
             """)
         else:
             cursor.execute("""
-                SELECT id, full_name, group_id, class, tg_name
-                FROM students
-                ORDER BY full_name ASC
+                SELECT
+                    s.id,
+                    s.full_name,
+                    s.group_id,
+                    s.class,
+                    s.tg_name,
+                    a.username AS auth_login,
+                    sc.login AS credential_login,
+                    sc.password AS credential_password
+                FROM students s
+                LEFT JOIN auth_users a ON a.ref_id = s.id AND a.role = 'student'
+                LEFT JOIN student_credentials sc ON sc.student_id = s.id
+                ORDER BY s.full_name ASC
             """)
 
         students = cursor.fetchall()

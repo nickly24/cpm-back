@@ -10,6 +10,10 @@ from werkzeug.security import generate_password_hash
 
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 from cpm_back.services.serv.student_credentials import generate_student_login
+from cpm_back.services.serv.student_plain_credentials import (
+    ensure_student_credentials_table,
+    upsert_student_credentials,
+)
 from cpm_back.services.user_import.person_name import normalize_person_name
 from cpm_back.services.user_import.school_lookup import is_schools_schema_ready
 
@@ -47,6 +51,7 @@ def _generate_password() -> str:
 
 def _rollback_entities(cursor, entities: Dict[str, List[Any]]) -> None:
     for student_id in reversed(entities.get("student_ids_created") or []):
+        cursor.execute("DELETE FROM student_credentials WHERE student_id = %s", (student_id,))
         cursor.execute("DELETE FROM auth_users WHERE role = 'student' AND ref_id = %s", (student_id,))
         cursor.execute("DELETE FROM students WHERE id = %s", (student_id,))
 
@@ -105,6 +110,7 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         preview = _load_preview_for_job(cursor, job)
+        ensure_student_credentials_table(cursor)
         students = preview.get("students") or []
         schools_map = {item["key"]: item for item in preview.get("schools") or []}
         groups_map = {item["key"]: item for item in preview.get("groups") or []}
@@ -303,6 +309,7 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
                 """,
                 (login, generate_password_hash(password), student_id),
             )
+            upsert_student_credentials(cursor, student_id, login, password)
             entities["auth_usernames_created"].append(login)
             conn.commit()
 
