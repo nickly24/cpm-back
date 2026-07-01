@@ -17,11 +17,14 @@ def _parse_class(raw: str) -> Tuple[Optional[int], Optional[str]]:
     if not text:
         return None, "Не указан класс"
     try:
-        value = int(float(text))
+        raw_value = float(text)
     except (TypeError, ValueError):
-        return None, "Класс должен быть числом 9, 10 или 11"
-    if value not in (9, 10, 11):
-        return None, "Класс должен быть 9, 10 или 11"
+        return None, "Класс должен быть положительным целым числом"
+    if not raw_value.is_integer():
+        return None, "Класс должен быть положительным целым числом"
+    value = int(raw_value)
+    if value <= 0:
+        return None, "Класс должен быть положительным целым числом"
     return value, None
 
 
@@ -77,6 +80,7 @@ def build_preview_from_rows(cursor, raw_rows: List[Dict[str, Any]]) -> Dict[str,
         class_number, class_error = _parse_class(raw.get("class_raw", ""))
         school_name = str(raw.get("school_name") or "").strip()
         proctor_name = str(raw.get("proctor_name") or "").strip()
+        tg_name = str(raw.get("tg_name") or "").strip()
 
         errors: List[str] = []
         if class_error:
@@ -160,6 +164,7 @@ def build_preview_from_rows(cursor, raw_rows: List[Dict[str, Any]]) -> Dict[str,
             "class": class_number,
             "school_key": school_key,
             "school_name": school_name or None,
+            "tg_name": tg_name,
             "proctor_key": proctor_key,
             "proctor_name": proctor_name or None,
             "group_key": group_key,
@@ -228,6 +233,7 @@ def rebuild_preview_actions(cursor, preview: Dict[str, Any]) -> Dict[str, Any]:
                 "class_raw": student.get("class"),
                 "school_name": student.get("school_name") or "",
                 "proctor_name": student.get("proctor_name") or "",
+                "tg_name": student.get("tg_name") or "",
             }
         )
     return build_preview_from_rows(cursor, raw_rows)

@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from werkzeug.security import generate_password_hash
 
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
+from cpm_back.services.serv.student_credentials import generate_student_login
 from cpm_back.services.user_import.person_name import normalize_person_name
 from cpm_back.services.user_import.school_lookup import is_schools_schema_ready
 
@@ -26,18 +27,6 @@ def _empty_entities() -> Dict[str, List[Any]]:
         "student_ids_created": [],
         "auth_usernames_created": [],
     }
-
-
-def _generate_student_login(cursor, first_name: str, last_name: str, class_number: int) -> str:
-    base_login = f"{first_name[0].lower()}{last_name.lower()}{class_number}"
-    login = base_login
-    counter = 1
-    while True:
-        cursor.execute("SELECT 1 FROM auth_users WHERE username = %s", (login,))
-        if not cursor.fetchone():
-            return login
-        login = f"{base_login}{counter}"
-        counter += 1
 
 
 def _generate_proctor_login(cursor, first_name: str, last_name: str) -> str:
@@ -229,6 +218,7 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
                 "full_name": student.get("full_name"),
                 "class": student.get("class"),
                 "school_name": student.get("school_name"),
+                "tg_name": student.get("tg_name") or "",
                 "proctor_name": student.get("proctor_name"),
                 "group_name": None,
                 "login": None,
@@ -280,7 +270,7 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
             else:
                 base_row["message"] = "Без группы"
 
-            tg_name = ""
+            tg_name = str(student.get("tg_name") or "").strip()
 
             if schools_schema:
                 cursor.execute(
@@ -302,12 +292,9 @@ def run_users_import(job_id: int, progress_callback: ProgressCallback = None) ->
             student_id = cursor.lastrowid
             entities["student_ids_created"].append(student_id)
 
-            login = _generate_student_login(
-                cursor,
-                person["first_name"],
-                person["last_name"],
-                int(class_number),
-            )
+            login = generate_student_login(cursor, student["full_name"])
+            if not login:
+                raise RuntimeError(f"Строка {student.get('row')}: некорректное ФИО ученика")
             password = _generate_password()
             cursor.execute(
                 """

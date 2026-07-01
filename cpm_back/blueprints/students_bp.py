@@ -16,6 +16,25 @@ from cpm_back.services.serv import (
 students_bp = Blueprint('students', __name__, url_prefix='/api')
 
 
+def _parse_positive_int(value, field_name):
+    if isinstance(value, bool):
+        raise ValueError
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError
+        parsed = int(value)
+    else:
+        text = str(value).strip()
+        if not text.isdigit():
+            raise ValueError
+        parsed = int(text)
+    if parsed <= 0:
+        raise ValueError
+    return parsed
+
+
 @students_bp.route('/student-group-filter', methods=['POST'])
 @require_role('admin', 'proctor')
 def group_filter(current_user=None):
@@ -53,9 +72,9 @@ def add(current_user=None):
     if not class_number:
         return jsonify({"status": False, "error": "Поле 'class' обязательно"}), 400
     try:
-        class_number = int(class_number)
+        class_number = _parse_positive_int(class_number, 'class')
     except (ValueError, TypeError):
-        return jsonify({"status": False, "error": "Поле 'class' должно быть числом"}), 400
+        return jsonify({"status": False, "error": "Поле 'class' должно быть положительным целым числом"}), 400
     answer = add_student(
         full_name,
         class_number,
@@ -77,9 +96,9 @@ def edit(current_user=None):
     class_number = data.get('class')
     if class_number is not None:
         try:
-            class_number = int(class_number)
+            class_number = _parse_positive_int(class_number, 'class')
         except (ValueError, TypeError):
-            return jsonify({"status": False, "error": "Поле 'class' должно быть числом"}), 400
+            return jsonify({"status": False, "error": "Поле 'class' должно быть положительным целым числом"}), 400
     answer = edit_student(
         data.get('student_id'),
         data.get('full_name'),

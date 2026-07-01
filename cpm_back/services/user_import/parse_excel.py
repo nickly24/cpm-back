@@ -21,6 +21,7 @@ HEADER_ALIASES = {
     "class": ("класс", "class"),
     "school": ("школа", "school"),
     "proctor": ("проктор", "proctor", "куратор"),
+    "tg_name": ("telegram", "телеграм", "tg", "tg_name", "ник telegram"),
 }
 
 
@@ -89,6 +90,7 @@ def parse_users_excel(file_bytes: bytes) -> Dict[str, Any]:
         class_raw = _cell_value(row, column_map.get("class"))
         school_name = _cell_value(row, column_map.get("school"))
         proctor_name = _cell_value(row, column_map.get("proctor"))
+        tg_name = _cell_value(row, column_map.get("tg_name"))
 
         parsed_rows.append(
             {
@@ -97,6 +99,7 @@ def parse_users_excel(file_bytes: bytes) -> Dict[str, Any]:
                 "class_raw": class_raw,
                 "school_name": school_name,
                 "proctor_name": proctor_name,
+                "tg_name": tg_name,
             }
         )
 

@@ -1,4 +1,5 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
+from cpm_back.services.serv.student_credentials import generate_student_login
 from werkzeug.security import generate_password_hash
 import random
 import string
@@ -9,7 +10,7 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
     
     Args:
         full_name (str): Полное имя студента
-        class_number (int): Класс студента (9, 10 или 11)
+        class_number (int): Класс студента
         tg_name (str, optional): Telegram никнейм студента
         school_id (int, optional): ID школы
     
@@ -19,10 +20,10 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
     connection = None
     try:
         # Проверяем корректность класса
-        if class_number not in [9, 10, 11]:
+        if class_number is None or class_number <= 0:
             return {
                 "status": False,
-                "error": "Класс должен быть 9, 10 или 11"
+                "error": "Класс должен быть положительным целым числом"
             }
         
         # Получаем подключение из пула
@@ -41,30 +42,13 @@ def add_student(full_name, class_number, tg_name=None, school_id=None):
             if not school_check["status"]:
                 return {"status": False, "error": school_check["error"]}
         
-        # Генерируем логин на основе имени и класса
-        # Формат: первая буква имени + фамилия + класс + случайные цифры
-        name_parts = full_name.strip().split()
-        if len(name_parts) < 2:
+        # Генерируем логин на основе ФИО: 4 буквы фамилии + 2 имени + 3 цифры
+        login = generate_student_login(cursor, full_name)
+        if not login:
             return {
                 "status": False,
                 "error": "Необходимо указать имя и фамилию"
             }
-        
-        first_name = name_parts[0].lower()
-        last_name = name_parts[-1].lower()
-        
-        # Генерируем уникальный логин
-        base_login = f"{first_name[0]}{last_name}{class_number}"
-        login = base_login
-        
-        # Проверяем уникальность логина и добавляем цифры если нужно
-        counter = 1
-        while True:
-            cursor.execute("SELECT 1 FROM auth_users WHERE username = %s", (login,))
-            if not cursor.fetchone():
-                break
-            login = f"{base_login}{counter}"
-            counter += 1
         
         # tg_name в БД NOT NULL — пустая строка, если не передан
         if tg_name is None:

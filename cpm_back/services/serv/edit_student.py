@@ -17,7 +17,7 @@ def edit_student(
     Args:
         student_id (int): ID студента
         full_name (str, optional): Новое полное имя студента
-        class_number (int, optional): Новый класс студента (9, 10 или 11)
+        class_number (int, optional): Новый класс студента
         group_id (int, optional): Новый ID группы студента
         school_id (int, optional): Новый ID школы (null — снять привязку)
         tg_name (str, optional): Новый Telegram никнейм студента
@@ -38,10 +38,10 @@ def edit_student(
             }
         
         # Проверяем корректность класса, если он передан
-        if class_number is not None and class_number not in [9, 10, 11]:
+        if class_number is not None and class_number <= 0:
             return {
                 "status": False,
-                "error": "Класс должен быть 9, 10 или 11"
+                "error": "Класс должен быть положительным целым числом"
             }
         
         # Получаем подключение из пула
@@ -136,4 +136,3 @@ def edit_student(
     finally:
         if connection:
             close_db_connection(connection)
-
