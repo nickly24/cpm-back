@@ -29,6 +29,7 @@ from .blueprints import (
     ratings_bp,
     user_import_bp,
     test_import_bp,
+    telegram_bot_bp,
 )
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
@@ -39,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SENSITIVE_BODY_KEYS = {'password', 'token', 'auth_token', 'authorization'}
+SENSITIVE_BODY_KEYS = {'password', 'token', 'bot_token', 'auth_token', 'authorization'}
 
 
 def _safe_request_body():
@@ -112,6 +113,12 @@ def create_app():
     except Exception as exc:
         logger.warning("recover_stale_user_import_jobs: %s", exc)
 
+    try:
+        from cpm_back.services.telegram_bot import start_bot_if_configured
+        start_bot_if_configured()
+    except Exception as exc:
+        logger.warning("start_bot_if_configured: %s", exc)
+
     @app.before_request
     def log_request():
         request.start_time = time.time()
@@ -160,5 +167,6 @@ def create_app():
     app.register_blueprint(ratings_bp)
     app.register_blueprint(user_import_bp)
     app.register_blueprint(test_import_bp)
+    app.register_blueprint(telegram_bot_bp)
 
     return app
