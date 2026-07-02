@@ -13,10 +13,12 @@ from .directions_bp import directions_bp
 from .tests_bp import tests_bp
 from .exams_bp import exams_bp
 from .external_tests_bp import external_tests_bp
+from .external_test_results_import_bp import external_test_results_import_bp
 from .ratings_bp import ratings_bp
 from .user_import_bp import user_import_bp
 from .test_import_bp import test_import_bp
 from .telegram_bot_bp import telegram_bot_bp
+from .test_drafts_bp import test_drafts_bp
 
 __all__ = [
     'auth_bp',
@@ -34,8 +36,10 @@ __all__ = [
     'tests_bp',
     'exams_bp',
     'external_tests_bp',
+    'external_test_results_import_bp',
     'ratings_bp',
     'user_import_bp',
     'test_import_bp',
     'telegram_bot_bp',
+    'test_drafts_bp',
 ]

@@ -8,8 +8,10 @@ from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 def _format_external_test(row):
     return {
         'id': f"external_{row['id']}",
+        'numeric_id': row['id'],
         'name': row['name'],
         'direction_id': row['direction_id'],
+        'direction_name': row.get('direction_name'),
         'date': row['date'].isoformat() if row.get('date') else None,
         'isExternal': True,
         'externalTest': True,
@@ -40,6 +42,7 @@ def create_external_test(name, direction_id, date):
             'success': True,
             'test': {
                 'id': f"external_{test_id}",
+                'numeric_id': test_id,
                 'name': name,
                 'direction_id': direction_id,
                 'date': date.isoformat() if hasattr(date, 'isoformat') else str(date),
@@ -50,6 +53,77 @@ def create_external_test(name, direction_id, date):
     except Exception as e:
         print(f"Ошибка при создании внешнего теста: {e}")
         return {'success': False, 'error': str(e)}
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
+def parse_external_test_id(test_id):
+    text = str(test_id or "").strip()
+    if text.startswith("external_"):
+        text = text[len("external_"):]
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def get_external_test_by_id(test_id):
+    numeric_id = parse_external_test_id(test_id)
+    if not numeric_id:
+        return None
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                t.id,
+                t.name,
+                t.direction_id,
+                t.date,
+                d.name AS direction_name
+            FROM tests_out t
+            LEFT JOIN directions d ON d.id = t.direction_id
+            WHERE t.id = %s
+            """,
+            (numeric_id,),
+        )
+        row = cursor.fetchone()
+        return _format_external_test(row) if row else None
+    except Exception as e:
+        print(f"Ошибка при получении внешнего теста: {e}")
+        return None
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
+def get_all_external_tests_for_admin():
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                t.id,
+                t.name,
+                t.direction_id,
+                t.date,
+                d.name AS direction_name
+            FROM tests_out t
+            LEFT JOIN directions d ON d.id = t.direction_id
+            ORDER BY t.date DESC, t.id DESC
+            """
+        )
+        return [_format_external_test(row) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Ошибка при получении внешних тестов: {e}")
+        return []
     finally:
         if connection:
             close_db_connection(connection)
@@ -76,8 +150,10 @@ def get_external_tests_by_direction(direction_id):
                 t.id,
                 t.name,
                 t.direction_id,
-                t.date
+                t.date,
+                d.name AS direction_name
             FROM tests_out t
+            LEFT JOIN directions d ON d.id = t.direction_id
             WHERE t.direction_id = %s
             ORDER BY t.date DESC
         """
@@ -115,11 +191,13 @@ def get_external_tests_with_results_by_student(direction_id, student_id):
                 t.name,
                 t.direction_id,
                 t.date,
+                d.name AS direction_name,
                 ts.id as session_id,
                 ts.student_id,
                 ts.test_id,
                 ts.rate
             FROM tests_out t
+            LEFT JOIN directions d ON d.id = t.direction_id
             LEFT JOIN test_sessions ts ON t.id = ts.test_id AND ts.student_id = %s
             WHERE t.direction_id = %s
             ORDER BY t.date DESC
@@ -166,8 +244,10 @@ def get_all_external_tests_by_direction_for_admin(direction_id):
                 t.id,
                 t.name,
                 t.direction_id,
-                t.date
+                t.date,
+                d.name AS direction_name
             FROM tests_out t
+            LEFT JOIN directions d ON d.id = t.direction_id
             WHERE t.direction_id = %s
             ORDER BY t.date DESC
         """

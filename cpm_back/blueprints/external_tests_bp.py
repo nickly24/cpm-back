@@ -6,11 +6,18 @@ from flask import Blueprint, jsonify, request
 from cpm_back.auth import require_auth, require_role, require_self_or_role
 from cpm_back.services.exam.get_external_tests import (
     create_external_test,
+    get_all_external_tests_for_admin,
     get_external_tests_with_results_by_student,
     get_all_external_tests_by_direction_for_admin,
 )
 
 external_tests_bp = Blueprint('external_tests', __name__, url_prefix='')
+
+
+@external_tests_bp.route('/external-tests', methods=['GET'])
+@require_role('admin')
+def list_all(current_user=None):
+    return jsonify(get_all_external_tests_for_admin())
 
 
 @external_tests_bp.route('/external-tests', methods=['POST'])

@@ -26,10 +26,12 @@ from .blueprints import (
     tests_bp,
     exams_bp,
     external_tests_bp,
+    external_test_results_import_bp,
     ratings_bp,
     user_import_bp,
     test_import_bp,
     telegram_bot_bp,
+    test_drafts_bp,
 )
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
@@ -164,9 +166,11 @@ def create_app():
     app.register_blueprint(test_attempts_bp)
     app.register_blueprint(exams_bp)
     app.register_blueprint(external_tests_bp)
+    app.register_blueprint(external_test_results_import_bp)
     app.register_blueprint(ratings_bp)
     app.register_blueprint(user_import_bp)
     app.register_blueprint(test_import_bp)
     app.register_blueprint(telegram_bot_bp)
+    app.register_blueprint(test_drafts_bp)
 
     return app

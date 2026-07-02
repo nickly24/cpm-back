@@ -79,7 +79,7 @@ def _serialize_job(row: Dict[str, Any]) -> Dict[str, Any]:
         "entities_created": row.get("entities_created"),
         "summary": row.get("summary"),
         "progress_percent": _progress_percent(row),
-        "has_report": row.get("status") == "completed",
+        "has_report": row.get("status") in ("completed", "failed"),
     }
 
 
@@ -107,6 +107,7 @@ def create_import_job(
     session_id: int,
     preview: Dict[str, Any],
     *,
+    import_type: str = "users",
     created_by: Optional[int] = None,
     created_by_name: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -130,10 +131,11 @@ def create_import_job(
             INSERT INTO user_import_jobs
                 (session_id, import_type, status, created_by, created_by_name,
                  total_rows, summary, message)
-            VALUES (%s, 'users', 'queued', %s, %s, %s, %s, %s)
+            VALUES (%s, %s, 'queued', %s, %s, %s, %s, %s)
             """,
             (
                 session_id,
+                import_type,
                 created_by,
                 created_by_name,
                 total_rows,
@@ -301,7 +303,7 @@ def get_job_report(job_id: int) -> Optional[Dict[str, Any]]:
 
         cursor.execute(
             """
-            SELECT j.id, j.status, j.summary, j.successful, j.skipped, j.failed, r.rows_data
+            SELECT j.id, j.import_type, j.status, j.summary, j.successful, j.skipped, j.failed, r.rows_data
             FROM user_import_jobs j
             LEFT JOIN user_import_job_results r ON r.job_id = j.id
             WHERE j.id = %s
@@ -322,6 +324,7 @@ def get_job_report(job_id: int) -> Optional[Dict[str, Any]]:
 
         return {
             "job_id": row["id"],
+            "import_type": row.get("import_type") or "users",
             "status": row["status"],
             "summary": summary,
             "successful": int(row.get("successful") or 0),
@@ -349,9 +352,20 @@ def _run_import_job(job_id: int) -> None:
         if not job or not _mark_running(job_id):
             return
 
-        from .import_runner import run_users_import
+        import_type = job.get("import_type") or "users"
+        if import_type == "external_test_results":
+            from cpm_back.services.external_test_results_import.import_runner import (
+                run_external_test_results_import,
+            )
 
-        run_users_import(job_id, progress_callback=_make_progress_callback(job_id))
+            run_external_test_results_import(
+                job_id,
+                progress_callback=_make_progress_callback(job_id),
+            )
+        else:
+            from .import_runner import run_users_import
+
+            run_users_import(job_id, progress_callback=_make_progress_callback(job_id))
     finally:
         with _import_thread_lock:
             if _active_import_job_id == job_id:
