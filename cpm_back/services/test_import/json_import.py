@@ -183,15 +183,23 @@ def _answer_template_text(answer: Dict[str, Any]) -> str:
     )
 
 
-def _text_answer_values(answer: Dict[str, Any]) -> List[str]:
-    candidates = [
-        _as_str(answer.get("ValueText")),
-        _html_to_text(answer.get("TextWOHtml")),
-        _html_to_text(answer.get("Text")),
-    ]
-    if answer.get("ValueInt") is not None and not isinstance(answer.get("ValueInt"), bool):
-        candidates.append(_value_to_str(answer.get("ValueInt")))
-    if answer.get("ValueFloat") is not None and not isinstance(answer.get("ValueFloat"), bool):
+def _split_text_variants(value: str) -> List[str]:
+    variants = re.split(r"\s*<или>\s*", value, flags=re.IGNORECASE)
+    result: List[str] = []
+    for variant in variants:
+        text = variant.strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _numeric_text_values(answer: Dict[str, Any]) -> List[str]:
+    candidates: List[str] = []
+    raw_int = answer.get("ValueInt")
+    raw_float = answer.get("ValueFloat")
+    if raw_int not in (None, "") and not isinstance(raw_int, bool):
+        candidates.append(_value_to_str(raw_int))
+    if raw_float not in (None, "") and not isinstance(raw_float, bool):
         raw_float = answer.get("ValueFloat")
         try:
             parsed = float(raw_float)
@@ -201,9 +209,30 @@ def _text_answer_values(answer: Dict[str, Any]) -> List[str]:
 
     result: List[str] = []
     for candidate in candidates:
-        if candidate and candidate not in result:
+        if candidate and candidate != "0" and candidate not in result:
             result.append(candidate)
     return result
+
+
+def _text_answer_values(answer: Dict[str, Any], answer_type: Any) -> List[str]:
+    if answer_type == 420:
+        value_text = _as_str(answer.get("ValueText"))
+        if value_text:
+            return _split_text_variants(value_text)
+        fallback = _html_to_text(answer.get("TextWOHtml")) or _html_to_text(answer.get("Text"))
+        return _split_text_variants(fallback) if fallback else []
+
+    if answer_type == 410:
+        numeric_values = _numeric_text_values(answer)
+        if numeric_values:
+            return numeric_values
+        value_text = _as_str(answer.get("ValueText"))
+        if value_text:
+            return _split_text_variants(value_text)
+        fallback = _html_to_text(answer.get("TextWOHtml")) or _html_to_text(answer.get("Text"))
+        return _split_text_variants(fallback) if fallback else []
+
+    return []
 
 
 def _convert_online_question(
@@ -263,7 +292,7 @@ def _convert_online_question(
         correct_answers: List[str] = []
         for answer in templates:
             if isinstance(answer, dict) and _score_is_positive(answer):
-                for value in _text_answer_values(answer):
+                for value in _text_answer_values(answer, question.get("AnswerType")):
                     if value not in correct_answers:
                         correct_answers.append(value)
         if not correct_answers:
