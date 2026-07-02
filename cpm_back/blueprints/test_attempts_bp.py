@@ -14,6 +14,7 @@ from cpm_back.services.exam.test_attempts import (
 )
 from cpm_back.services.exam.test_admin_monitoring import (
     delete_test_attempt_admin,
+    force_submit_test_attempt_admin,
     get_test_attempt_admin_detail,
 )
 
@@ -138,5 +139,18 @@ def admin_delete_attempt(attempt_id, current_user=None):
     result = delete_test_attempt_admin(attempt_id)
     if not result.get('success'):
         code = 404 if result.get('error') in ('attempt_not_found',) else 500
+        return jsonify(result), code
+    return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/admin/submit', methods=['POST'])
+@require_role('admin')
+def admin_force_submit_attempt(attempt_id, current_user=None):
+    result = force_submit_test_attempt_admin(attempt_id)
+    if not result.get('success'):
+        err = result.get('error')
+        if err == 'test_already_completed':
+            return jsonify(result), 409
+        code = 404 if err in ('attempt_not_found', 'test_not_found') else 400
         return jsonify(result), code
     return jsonify(result)

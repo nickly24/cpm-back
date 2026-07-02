@@ -25,6 +25,7 @@ from cpm_back.services.exam.test_attempts import (
     count_attempts_by_test,
     count_attempts_by_test_and_status,
     delete_attempt_by_id,
+    force_submit_attempt_admin,
     get_attempt_admin_detail,
     list_attempts_by_test_paginated,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "list_test_attempts_admin",
     "get_test_attempt_admin_detail",
     "delete_test_attempt_admin",
+    "force_submit_test_attempt_admin",
     "get_test_admin_overview",
 ]
 
@@ -215,4 +217,16 @@ def delete_test_attempt_admin(attempt_id):
         "success": True,
         "attemptId": str(attempt_id),
         "message": "Попытка удалена. Студент может начать тест заново (если нет финальной сессии).",
+    }
+
+
+def force_submit_test_attempt_admin(attempt_id):
+    result = force_submit_attempt_admin(attempt_id)
+    if not result.get("success"):
+        return result
+
+    return {
+        **result,
+        "attemptId": str(attempt_id),
+        "message": "Попытка принудительно завершена по ответам, которые уже есть на сервере.",
     }

@@ -662,6 +662,108 @@ def submit_attempt(attempt_id, student_id):
     }
 
 
+def force_submit_attempt_admin(attempt_id):
+    """Админское принудительное завершение попытки по текущим серверным ответам."""
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id)})
+    except Exception:
+        return {"success": False, "error": "attempt_not_found"}
+
+    if not doc:
+        return {"success": False, "error": "attempt_not_found"}
+
+    status = doc.get("status")
+    if status == STATUS_SUBMITTED:
+        return {"success": False, "error": "attempt_not_active"}
+
+    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+        return {"success": False, "error": "attempt_not_active"}
+
+    test = _get_test_document(doc.get("testId"))
+    if not test:
+        return {"success": False, "error": "test_not_found"}
+
+    student_id = normalize_student_id(doc.get("studentId"))
+    if get_test_session_by_student_and_test(student_id, doc.get("testId")):
+        return {"success": False, "error": "test_already_completed"}
+
+    questions = test.get("questions") or []
+    order = doc.get("questionOrder") or []
+    raw_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
+    scored_answers, score = score_attempt_answers(questions, order, raw_by_qid)
+
+    from datetime import datetime as dt
+    started = to_datetime(doc.get("startedAt"))
+    completed = dt.utcnow()
+    time_spent = 1
+    if started:
+        time_spent = max(1, int((completed - started).total_seconds() // 60) or 1)
+
+    correct_answers = sum(1 for answer in scored_answers if answer.get("isCorrect"))
+    total_questions = len(order)
+    accuracy = round((correct_answers / total_questions) * 100) if total_questions else 0
+    stats = {
+        "correctAnswers": correct_answers,
+        "totalQuestions": total_questions,
+        "accuracy": accuracy,
+        "totalPoints": sum(int(a.get("points", 0)) for a in scored_answers),
+    }
+
+    if bool(doc.get("isPractice")):
+        _collection().update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "status": STATUS_SUBMITTED,
+                    "submittedAt": now_utc_iso(),
+                    "answers": scored_answers,
+                    "practiceScore": score,
+                    "adminForcedSubmit": True,
+                }
+            },
+        )
+        return {
+            "success": True,
+            "isPractice": True,
+            "score": score,
+            "answers": scored_answers,
+            "timeSpentMinutes": time_spent,
+            "stats": stats,
+        }
+
+    session_result = insert_completed_test_session(
+        student_id=student_id,
+        test_id=doc.get("testId"),
+        test_title=test.get("title") or doc.get("testTitle") or "",
+        answers=scored_answers,
+        score=score,
+        time_spent_minutes=time_spent,
+        question_order=order,
+    )
+    if not session_result.get("success"):
+        return session_result
+
+    _collection().update_one(
+        {"_id": doc["_id"]},
+        {
+            "$set": {
+                "status": STATUS_SUBMITTED,
+                "submittedAt": now_utc_iso(),
+                "linkedSessionId": session_result.get("sessionId"),
+                "adminForcedSubmit": True,
+            }
+        },
+    )
+    return {
+        "success": True,
+        "sessionId": session_result.get("sessionId"),
+        "score": score,
+        "answers": scored_answers,
+        "timeSpentMinutes": time_spent,
+        "stats": stats,
+    }
+
+
 def _parse_status_filter(status_filter):
     if not status_filter or status_filter in ("active", "pending"):
         return [STATUS_IN_PROGRESS, STATUS_EXPIRED]
