@@ -497,7 +497,7 @@ def patch_answers_batch(attempt_id, student_id, answers_list):
     if not isinstance(answers_list, list) or not answers_list:
         return {"success": False, "error": "answers_required"}
 
-    if len(answers_list) > 60:
+    if len(answers_list) > 500:
         return {"success": False, "error": "answers_batch_too_large"}
 
     try:
@@ -582,7 +582,11 @@ def submit_attempt(attempt_id, student_id):
 
     questions = test.get("questions") or []
     order = doc.get("questionOrder") or []
-    raw_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
+    raw_answers = doc.get("answers") or []
+    if not is_practice and order and not raw_answers:
+        return {"success": False, "error": "empty_attempt_answers"}
+
+    raw_by_qid = {a.get("questionId"): a for a in raw_answers}
     scored_answers, score = score_attempt_answers(questions, order, raw_by_qid)
 
     from datetime import datetime as dt
@@ -622,10 +626,6 @@ def submit_attempt(attempt_id, student_id):
             "timeSpentMinutes": time_spent,
             "stats": stats,
         }
-
-    open_ok, window_err = is_test_window_open(test)
-    if not open_ok:
-        return {"success": False, "error": window_err}
 
     if get_test_session_by_student_and_test(student_id, doc.get("testId")):
         return {"success": False, "error": "test_already_completed"}

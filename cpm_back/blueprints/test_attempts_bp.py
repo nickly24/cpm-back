@@ -117,6 +117,8 @@ def attempt_submit(attempt_id, current_user=None):
             return jsonify(result), 403
         if err in ('test_not_started', 'test_ended'):
             return jsonify(result), 403
+        if err == 'empty_attempt_answers':
+            return jsonify(result), 409
         return jsonify(result), 400 if err != 'attempt_not_found' else 404
     return jsonify(result)
 
