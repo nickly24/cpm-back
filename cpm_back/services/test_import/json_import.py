@@ -173,6 +173,20 @@ def _score_is_positive(answer: Dict[str, Any]) -> bool:
         return False
 
 
+def _is_right_answer(answer: Dict[str, Any]) -> bool:
+    return answer.get("IsRightAnswer") is True
+
+
+def _should_use_score_for_correctness(templates: List[Any]) -> bool:
+    return any(isinstance(answer, dict) and _score_is_positive(answer) for answer in templates)
+
+
+def _answer_is_correct(answer: Dict[str, Any], use_score: bool) -> bool:
+    if use_score:
+        return _score_is_positive(answer)
+    return _is_right_answer(answer)
+
+
 def _answer_template_text(answer: Dict[str, Any]) -> str:
     return (
         _html_to_text(answer.get("TextWOHtml"))
@@ -274,6 +288,7 @@ def _convert_online_question(
         templates,
         key=lambda item: item.get("Number") if isinstance(item, dict) and isinstance(item.get("Number"), int) else 0,
     )
+    use_score_for_correctness = _should_use_score_for_correctness(templates)
 
     if q_type in ("single", "multiple"):
         answers = []
@@ -284,14 +299,14 @@ def _convert_online_question(
             answers.append({
                 "id": _option_id(answer_index),
                 "text": _answer_template_text(answer),
-                "isCorrect": _score_is_positive(answer),
+                "isCorrect": _answer_is_correct(answer, use_score_for_correctness),
             })
         converted["answers"] = answers
         converted.pop("correctAnswers", None)
     else:
         correct_answers: List[str] = []
         for answer in templates:
-            if isinstance(answer, dict) and _score_is_positive(answer):
+            if isinstance(answer, dict) and _answer_is_correct(answer, use_score_for_correctness):
                 for value in _text_answer_values(answer, question.get("AnswerType")):
                     if value not in correct_answers:
                         correct_answers.append(value)
