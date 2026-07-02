@@ -4,6 +4,57 @@
 """
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
+
+def _format_external_test(row):
+    return {
+        'id': f"external_{row['id']}",
+        'name': row['name'],
+        'direction_id': row['direction_id'],
+        'date': row['date'].isoformat() if row.get('date') else None,
+        'isExternal': True,
+        'externalTest': True,
+    }
+
+
+def create_external_test(name, direction_id, date):
+    """
+    Создает внешний тест в MySQL tests_out.
+
+    Внешний тест не содержит вопросов и не запускается в CPM-LMS: он нужен для
+    отображения факта внешней сдачи и дальнейшей привязки результатов.
+    """
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            INSERT INTO tests_out (name, direction_id, date)
+            VALUES (%s, %s, %s)
+            """,
+            (name, direction_id, date),
+        )
+        test_id = cursor.lastrowid
+        connection.commit()
+        return {
+            'success': True,
+            'test': {
+                'id': f"external_{test_id}",
+                'name': name,
+                'direction_id': direction_id,
+                'date': date.isoformat() if hasattr(date, 'isoformat') else str(date),
+                'isExternal': True,
+                'externalTest': True,
+            },
+        }
+    except Exception as e:
+        print(f"Ошибка при создании внешнего теста: {e}")
+        return {'success': False, 'error': str(e)}
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
 def get_external_tests_by_direction(direction_id):
     """
     Получает все внешние тесты по ID направления
@@ -76,16 +127,10 @@ def get_external_tests_with_results_by_student(direction_id, student_id):
         cursor.execute(query, (student_id, direction_id,))
         results = cursor.fetchall()
         
-        # Форматируем результаты
         formatted_tests = []
         for row in results:
             test = {
-                'id': f"external_{row['id']}",  # Префикс для идентификации внешних тестов
-                'name': row['name'],
-                'direction_id': row['direction_id'],
-                'date': row['date'].isoformat() if row['date'] else None,
-                'isExternal': True,  # Флаг, что это внешний тест
-                'externalTest': True,  # Дополнительный флаг для фронтенда
+                **_format_external_test(row),
                 'hasResult': row['session_id'] is not None,  # Есть ли результат у студента
                 'rate': row['rate'] if row['session_id'] else None,  # Результат, если есть
                 'sessionId': row['session_id'] if row['session_id'] else None
@@ -129,18 +174,9 @@ def get_all_external_tests_by_direction_for_admin(direction_id):
         cursor.execute(query, (direction_id,))
         tests = cursor.fetchall()
         
-        # Форматируем результаты
         formatted_tests = []
         for row in tests:
-            test = {
-                'id': f"external_{row['id']}",  # Префикс для идентификации внешних тестов
-                'name': row['name'],
-                'direction_id': row['direction_id'],
-                'date': row['date'].isoformat() if row['date'] else None,
-                'isExternal': True,
-                'externalTest': True
-            }
-            formatted_tests.append(test)
+            formatted_tests.append(_format_external_test(row))
         
         return formatted_tests
     except Exception as e:
@@ -149,4 +185,3 @@ def get_all_external_tests_by_direction_for_admin(direction_id):
     finally:
         if connection:
             close_db_connection(connection)
-
