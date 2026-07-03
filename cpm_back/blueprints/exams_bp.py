@@ -4,8 +4,10 @@
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.exam.get_exams import (
+    delete_exam,
     get_all_exams,
     get_all_exams_paginated,
+    get_exam_delete_preview,
     get_exam_session,
     get_exam_sessions_by_student,
     get_exam_sessions_by_student_paginated,
@@ -98,3 +100,30 @@ def attendance(current_user=None):
     if not student_id or not year_month:
         return jsonify({"status": False, "error": "Отсутствуют обязательные поля: student_id, year_month"}), 400
     return jsonify(get_student_attendance(student_id, year_month))
+
+
+@exams_bp.route('/exams/<exam_id>/delete-preview', methods=['GET'])
+@require_role('admin')
+def delete_preview(exam_id, current_user=None):
+    preview = get_exam_delete_preview(exam_id)
+    if not preview:
+        return jsonify({'error': 'Exam not found'}), 404
+    return jsonify(preview)
+
+
+@exams_bp.route('/exams/<exam_id>', methods=['DELETE'])
+@require_role('admin')
+def delete(exam_id, current_user=None):
+    try:
+        result = delete_exam(exam_id)
+    except Exception as exc:
+        return jsonify({'error': 'Failed to delete exam', 'message': str(exc)}), 500
+
+    if not result:
+        return jsonify({'error': 'Exam not found'}), 404
+
+    return jsonify({
+        'message': 'Exam and related sessions deleted successfully',
+        'examId': int(exam_id) if str(exam_id).isdigit() else exam_id,
+        'sessionsDeleted': result['sessionsDeleted'],
+    })

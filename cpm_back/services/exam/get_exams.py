@@ -487,3 +487,113 @@ def get_exam_sessions_by_exam_paginated(
     finally:
         if connection:
             close_db_connection(connection)
+
+
+def _parse_exam_id(exam_id):
+    try:
+        parsed = int(exam_id)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _get_exam_row(exam_id):
+    numeric_id = _parse_exam_id(exam_id)
+    if not numeric_id:
+        return None
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, name, date FROM exams WHERE id = %s",
+            (numeric_id,),
+        )
+        return cursor.fetchone()
+    except Exception as e:
+        print(f"Ошибка при получении экзамена: {e}")
+        return None
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
+def count_exam_sessions(exam_id):
+    numeric_id = _parse_exam_id(exam_id)
+    if not numeric_id:
+        return 0
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt FROM exam_sessions WHERE exam_id = %s",
+            (numeric_id,),
+        )
+        row = cursor.fetchone()
+        return int(row["cnt"]) if row else 0
+    except Exception as e:
+        print(f"Ошибка при подсчёте сессий экзамена: {e}")
+        return 0
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
+def get_exam_delete_preview(exam_id):
+    row = _get_exam_row(exam_id)
+    if not row:
+        return None
+
+    exam = {
+        "id": row["id"],
+        "name": row["name"],
+        "date": row["date"].isoformat() if row.get("date") else None,
+    }
+    return {
+        "exam": exam,
+        "sessionsCount": count_exam_sessions(exam_id),
+    }
+
+
+def delete_exam(exam_id):
+    numeric_id = _parse_exam_id(exam_id)
+    if not numeric_id:
+        return None
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("SELECT id FROM exams WHERE id = %s", (numeric_id,))
+        if not cursor.fetchone():
+            return None
+
+        cursor.execute(
+            "DELETE FROM exam_sessions WHERE exam_id = %s",
+            (numeric_id,),
+        )
+        sessions_deleted = cursor.rowcount
+
+        cursor.execute(
+            "DELETE FROM exams WHERE id = %s",
+            (numeric_id,),
+        )
+        exam_deleted = cursor.rowcount > 0
+        connection.commit()
+
+        return {
+            "examDeleted": exam_deleted,
+            "sessionsDeleted": sessions_deleted,
+        }
+    except Exception as e:
+        if connection:
+            connection.rollback()
+        print(f"Ошибка при удалении экзамена: {e}")
+        raise
+    finally:
+        if connection:
+            close_db_connection(connection)
