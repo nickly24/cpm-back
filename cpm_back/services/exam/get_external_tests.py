@@ -265,3 +265,77 @@ def get_all_external_tests_by_direction_for_admin(direction_id):
     finally:
         if connection:
             close_db_connection(connection)
+
+
+def count_external_test_results(test_id):
+    numeric_id = parse_external_test_id(test_id)
+    if not numeric_id:
+        return 0
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt FROM test_sessions WHERE test_id = %s",
+            (numeric_id,),
+        )
+        row = cursor.fetchone()
+        return int(row["cnt"]) if row else 0
+    except Exception as e:
+        print(f"Ошибка при подсчёте результатов внешнего теста: {e}")
+        return 0
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
+def get_external_test_delete_preview(test_id):
+    test = get_external_test_by_id(test_id)
+    if not test:
+        return None
+    return {
+        "test": test,
+        "resultsCount": count_external_test_results(test_id),
+    }
+
+
+def delete_external_test(test_id):
+    numeric_id = parse_external_test_id(test_id)
+    if not numeric_id:
+        return None
+
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("SELECT id FROM tests_out WHERE id = %s", (numeric_id,))
+        if not cursor.fetchone():
+            return None
+
+        cursor.execute(
+            "DELETE FROM test_sessions WHERE test_id = %s",
+            (numeric_id,),
+        )
+        results_deleted = cursor.rowcount
+
+        cursor.execute(
+            "DELETE FROM tests_out WHERE id = %s",
+            (numeric_id,),
+        )
+        test_deleted = cursor.rowcount > 0
+        connection.commit()
+
+        return {
+            "testDeleted": test_deleted,
+            "resultsDeleted": results_deleted,
+        }
+    except Exception as e:
+        if connection:
+            connection.rollback()
+        print(f"Ошибка при удалении внешнего теста: {e}")
+        raise
+    finally:
+        if connection:
+            close_db_connection(connection)
