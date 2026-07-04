@@ -4,6 +4,7 @@ from cpm_back.auth import require_role
 from cpm_back.services.exam.test_drafts import (
     create_test_draft,
     create_test_draft_from_test,
+    delete_test_draft,
     get_test_draft,
     list_test_drafts,
     lock_test_draft,
@@ -55,6 +56,19 @@ def drafts_update(draft_id, current_user=None):
     if not draft:
         return jsonify({"error": "draft_not_found"}), 404
     return jsonify(draft)
+
+
+@test_drafts_bp.route("/test-drafts/<draft_id>", methods=["DELETE"])
+@require_role("admin")
+def drafts_delete(draft_id, current_user=None):
+    result = delete_test_draft(draft_id, current_user=current_user)
+    if not result.get("success"):
+        if result.get("error") == "locked":
+            return jsonify(result), 409
+        if result.get("error") == "draft_not_active":
+            return jsonify(result), 400
+        return jsonify(result), 404
+    return jsonify(result)
 
 
 @test_drafts_bp.route("/test-drafts/<draft_id>/lock", methods=["POST"])

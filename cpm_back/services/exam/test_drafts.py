@@ -219,6 +219,44 @@ def unlock_test_draft(draft_id, current_user=None):
     return {"success": True}
 
 
+def delete_test_draft(draft_id, current_user=None):
+    try:
+        oid = ObjectId(draft_id)
+    except Exception:
+        return {"success": False, "error": "draft_not_found"}
+
+    db = get_mongo_db()
+    existing = db.test_drafts.find_one({"_id": oid})
+    if not existing:
+        return {"success": False, "error": "draft_not_found"}
+    if existing.get("status") != "active":
+        return {"success": False, "error": "draft_not_active"}
+
+    user_id = (current_user or {}).get("id")
+    locked_by = existing.get("lockedBy")
+    locked_until = _parse_dt(existing.get("lockedUntil"))
+    now = datetime.utcnow()
+    if (
+        locked_by
+        and str(locked_by) != str(user_id)
+        and locked_until
+        and locked_until > now
+    ):
+        return {
+            "success": False,
+            "error": "locked",
+            "message": "Драфт сейчас редактирует другой администратор",
+            "lockedBy": locked_by,
+            "lockedByName": existing.get("lockedByName"),
+            "lockedUntil": existing.get("lockedUntil"),
+        }
+
+    result = db.test_drafts.delete_one({"_id": oid, "status": "active"})
+    if result.deleted_count == 0:
+        return {"success": False, "error": "draft_not_found"}
+    return {"success": True}
+
+
 def _validate_canvas(draft):
     errors = []
     canvas = draft.get("canvas") or {}
