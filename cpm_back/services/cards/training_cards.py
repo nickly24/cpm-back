@@ -110,6 +110,112 @@ def _test_section_node(student_id, test_item):
     }
 
 
+def get_direction_sections(
+    student_id,
+    direction_id,
+    page=1,
+    limit=6,
+    search="",
+    kind="all",
+    progress="all",
+):
+    """Разделы конкретного направления с серверной пагинацией/фильтрацией."""
+    connection = None
+    try:
+        direction_id = int(direction_id)
+        page = max(1, int(page or 1))
+        limit = max(1, min(100, int(limit or 6)))
+        search_value = (search or "").strip().lower()
+        kind_filter = kind if kind in ("all", "manual", "test") else "all"
+        progress_filter = (
+            progress if progress in ("all", "in_progress", "learned") else "all"
+        )
+
+        directions = get_directions() or []
+        direction = next((d for d in directions if d["id"] == direction_id), None)
+        if not direction:
+            return {"success": False, "error": "Direction not found"}
+
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute(
+            """
+            SELECT id, name, direction_id
+            FROM card_themes
+            WHERE direction_id = %s
+            ORDER BY name
+            """,
+            (direction_id,),
+        )
+        theme_rows = cursor.fetchall()
+
+        sections = []
+        for theme_row in theme_rows:
+            sections.append(_manual_section_node(cursor, student_id, theme_row))
+
+        visible_tests = get_visible_training_tests()
+        for test_item in visible_tests:
+            if test_item.get("direction") != direction["name"]:
+                continue
+            node = _test_section_node(student_id, test_item)
+            if node:
+                sections.append(node)
+
+        if kind_filter != "all":
+            sections = [s for s in sections if s["kind"] == kind_filter]
+
+        if progress_filter == "learned":
+            sections = [
+                s
+                for s in sections
+                if s["total_cards"] > 0 and s["learned_cards"] >= s["total_cards"]
+            ]
+        elif progress_filter == "in_progress":
+            sections = [
+                s
+                for s in sections
+                if s["total_cards"] == 0 or s["learned_cards"] < s["total_cards"]
+            ]
+
+        if search_value:
+            sections = [
+                s
+                for s in sections
+                if search_value in (s.get("name") or "").lower()
+                or search_value in (s.get("sourceTestTitle") or "").lower()
+            ]
+
+        total = len(sections)
+        pages = max(1, (total + limit - 1) // limit)
+        if page > pages:
+            page = pages
+        start = (page - 1) * limit
+        end = start + limit
+        paged = sections[start:end]
+
+        return {
+            "success": True,
+            "student_id": student_id,
+            "direction_id": direction_id,
+            "direction_name": direction["name"],
+            "sections": paged,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": pages,
+                "has_next": page < pages,
+                "has_prev": page > 1,
+            },
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    finally:
+        if connection:
+            close_db_connection(connection)
+
+
 def get_training_tree(student_id):
     """Направления с manual- и test-разделами."""
     connection = None

@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.cards import (
     get_training_tree,
+    get_direction_sections,
     get_section_study_view,
     get_section_batch_cards,
     update_section_study_settings,
@@ -41,6 +42,29 @@ def get_training_tree_route(student_id, current_user=None):
     result = get_training_tree(student_id)
     if not result.get("success"):
         return jsonify(result), 500
+    return jsonify(result)
+
+
+@cards_bp.route("/training-sections/<int:student_id>/<int:direction_id>", methods=["GET"])
+@require_self_or_role("student_id", "admin", "proctor")
+def direction_sections_route(student_id, direction_id, current_user=None):
+    page = request.args.get("page", default=1, type=int)
+    limit = request.args.get("limit", default=6, type=int)
+    search = request.args.get("search", default="", type=str)
+    kind = request.args.get("kind", default="all", type=str)
+    progress = request.args.get("progress", default="all", type=str)
+    result = get_direction_sections(
+        student_id,
+        direction_id,
+        page=page,
+        limit=limit,
+        search=search,
+        kind=kind,
+        progress=progress,
+    )
+    if not result.get("success"):
+        status = 404 if result.get("error") == "Direction not found" else 400
+        return jsonify(result), status
     return jsonify(result)
 
 

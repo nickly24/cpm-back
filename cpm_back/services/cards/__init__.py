@@ -1,5 +1,6 @@
 from .training_cards import (
     get_training_tree,
+    get_direction_sections,
     get_section_study_view,
     get_section_batch_cards,
     update_section_study_settings,
@@ -18,6 +19,7 @@ from .training_progress import unmark_card_learned
 
 __all__ = [
     "get_training_tree",
+    "get_direction_sections",
     "get_section_study_view",
     "get_section_batch_cards",
     "update_section_study_settings",
