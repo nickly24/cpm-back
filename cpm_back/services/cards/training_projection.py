@@ -142,3 +142,24 @@ def get_visible_training_tests():
 
     items = get_published_tests_light_cached()
     return [item for item in items if item.get("visible")]
+
+
+def normalize_direction_name(value):
+    return (value or "").strip()
+
+
+def count_admin_test_training_cards(test_id):
+    """Число карточек теста для админ-каталога (без фильтра visible)."""
+    from cpm_back.services.exam.exam_memory_cache import get_test_document_cached
+
+    test = get_test_document_cached(str(test_id))
+    if not test or test.get("published") is False:
+        return 0
+
+    count = 0
+    tid = str(test_id)
+    for question in test.get("questions") or []:
+        projected = project_test_question(tid, question)
+        if projected["question"] and projected["answer"]:
+            count += 1
+    return count

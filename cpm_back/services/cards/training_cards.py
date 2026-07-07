@@ -4,9 +4,11 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.services.exam.get_directions import get_directions
 from cpm_back.services.cards.training_projection import (
+    count_admin_test_training_cards,
     get_test_training_cards,
     get_visible_training_tests,
     manual_card_ref,
+    normalize_direction_name,
     project_manual_card,
     test_allows_training,
 )
@@ -156,7 +158,9 @@ def get_direction_sections(
 
         visible_tests = get_visible_training_tests()
         for test_item in visible_tests:
-            if test_item.get("direction") != direction["name"]:
+            if normalize_direction_name(test_item.get("direction")) != normalize_direction_name(
+                direction["name"]
+            ):
                 continue
             node = _test_section_node(student_id, test_item)
             if node:
@@ -242,7 +246,7 @@ def get_training_tree(student_id):
         visible_tests = get_visible_training_tests()
         tests_by_direction = {}
         for test in visible_tests:
-            direction_name = test.get("direction")
+            direction_name = normalize_direction_name(test.get("direction"))
             if direction_name:
                 tests_by_direction.setdefault(direction_name, []).append(test)
 
@@ -255,7 +259,9 @@ def get_training_tree(student_id):
             sections = []
             for theme_row in themes_by_direction.get(did, []):
                 sections.append(_manual_section_node(cursor, student_id, theme_row))
-            for test_item in tests_by_direction.get(direction["name"], []):
+            for test_item in tests_by_direction.get(
+                normalize_direction_name(direction["name"]), []
+            ):
                 node = _test_section_node(student_id, test_item)
                 if node:
                     sections.append(node)
@@ -443,7 +449,7 @@ def mark_section_card_learned(
 
 
 def get_admin_training_catalog():
-    """Направления → manual-разделы → карточки."""
+    """Направления → manual- и test-разделы → счётчики карточек."""
     connection = None
     try:
         connection = get_db_connection()
@@ -464,6 +470,7 @@ def get_admin_training_catalog():
         for row in theme_rows:
             themes_by_direction.setdefault(row["direction_id"], []).append(
                 {
+                    "kind": "manual",
                     "id": row["id"],
                     "name": row["name"],
                     "direction_id": row["direction_id"],
@@ -471,9 +478,37 @@ def get_admin_training_catalog():
                 }
             )
 
+        from cpm_back.services.exam.exam_memory_cache import (
+            get_published_tests_light_cached,
+        )
+
+        tests_by_direction = {}
+        for test_item in get_published_tests_light_cached():
+            direction_name = normalize_direction_name(test_item.get("direction"))
+            if direction_name:
+                tests_by_direction.setdefault(direction_name, []).append(test_item)
+
         catalog = []
         for direction in directions:
-            sections = themes_by_direction.get(direction["id"], [])
+            sections = list(themes_by_direction.get(direction["id"], []))
+            direction_name = normalize_direction_name(direction["name"])
+            for test_item in tests_by_direction.get(direction_name, []):
+                test_id = str(test_item.get("id"))
+                cards_count = count_admin_test_training_cards(test_id)
+                title = test_item.get("title") or "Тест"
+                sections.append(
+                    {
+                        "kind": "test",
+                        "test_id": test_id,
+                        "name": title,
+                        "source_test_title": title,
+                        "direction_id": direction["id"],
+                        "cards_count": cards_count,
+                        "visible": bool(test_item.get("visible")),
+                    }
+                )
+
+            sections.sort(key=lambda item: (item.get("name") or "").lower())
             catalog.append(
                 {
                     "id": direction["id"],
