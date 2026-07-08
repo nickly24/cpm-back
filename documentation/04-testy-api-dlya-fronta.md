@@ -653,6 +653,9 @@ UI должен показывать очередь pending-запросов р�
 | GET | `/test-attempt/:id/admin` | admin | Детали попытки |
 | DELETE | `/test-attempt/:id` | admin | Удалить попытку |
 | PUT | `/test/:id/toggle-published` | admin | Видимость теста для студентов |
+| GET | `/test/:id/changes` | admin | История изменений теста (вопросы + метаданные) |
+| GET | `/test/:id/question/:question_id/changes` | admin | История по конкретному вопросу (`testId+questionId`) |
+| GET | `/tests/changes/recent` | admin | Последние изменения по всем тестам |
 
 ---
 
@@ -715,3 +718,81 @@ UI должен показывать очередь pending-запросов р�
 | Фронт: экран прохождения | `cpm_front_new/components/student/tests/attempt/test-attempt-screen.tsx` |
 | Фронт: IndexedDB attempt | `cpm_front_new/lib/student/test-attempt-store.ts` |
 | Фронт: offline/batch sync | `cpm_front_new/lib/student/test-attempt-sync.ts` |
+
+---
+
+## 12. История изменений вопросов (admin)
+
+Новая коллекция Mongo: `test_question_change_log`.
+
+Аудит пишется при:
+- `PUT /test/:id` (diff вопросов и метаданных),
+- `PUT /test/:id/toggle-visibility`,
+- `PUT /test/:id/toggle-published`.
+
+### Формат события аудита
+
+```json
+{
+  "id": "6870...",
+  "testId": "665a...",
+  "questionId": 12,
+  "changeKey": "665a...#12",
+  "eventType": "question_updated",
+  "actor": { "userId": 1, "role": "admin", "fullName": "Иванов Иван" },
+  "changedAt": "2026-07-08T08:47:12.123Z",
+  "revision": 4,
+  "before": { "questionId": 12, "type": "single", "text": "..." },
+  "after": { "questionId": 12, "type": "single", "text": "..." },
+  "diff": {},
+  "context": { "source": "update_test" }
+}
+```
+
+### `GET /test/:id/changes`
+
+Лента изменений конкретного теста (новые сверху).
+
+Query:
+- `page` (default `1`)
+- `limit` (default `20`, max `100`)
+- `questionId` (опционально, integer)
+- `eventType` (опционально: `question_added | question_removed | question_updated | question_reordered | metadata_updated`)
+
+Ответ:
+
+```json
+{
+  "success": true,
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 3,
+    "totalPages": 1,
+    "hasNext": false,
+    "hasPrev": false
+  }
+}
+```
+
+Ошибки:
+- `404` `test_not_found`
+- `400` `invalid_question_id`
+
+### `GET /test/:id/question/:question_id/changes`
+
+История изменений по связке `testId + questionId` (в том же формате, что `/test/:id/changes`).
+
+Query:
+- `page`, `limit`
+
+Ошибки:
+- `404` `test_not_found`
+
+### `GET /tests/changes/recent`
+
+Последние изменения по всем тестам (глобальная админ-лента).
+
+Query:
+- `page`, `limit`

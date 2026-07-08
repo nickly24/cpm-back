@@ -45,6 +45,13 @@ from cpm_back.services.exam.test_admin_monitoring import (
     list_test_attempts_admin,
     list_test_sessions_admin,
 )
+from cpm_back.services.exam.test_change_audit import (
+    list_question_changes,
+    list_recent_test_changes,
+    list_test_changes,
+    log_test_changes,
+    log_test_metadata_change,
+)
 
 tests_bp = Blueprint('tests', __name__, url_prefix='')
 
@@ -251,9 +258,20 @@ def update(test_id, current_user=None):
     existing_test = get_test_by_id(test_id)
     if not existing_test:
         return jsonify({"error": "Test not found"}), 404
-    test_data = request.get_json()
+    test_data = request.get_json() or {}
     success = update_test(test_id, test_data)
     if success:
+        try:
+            updated_test = get_test_by_id(test_id)
+            if updated_test:
+                log_test_changes(
+                    before_test=existing_test,
+                    after_test=updated_test,
+                    actor=current_user,
+                    source="update_test",
+                )
+        except Exception as exc:
+            print(f"[audit] failed to log test update changes for {test_id}: {exc}")
         recalc_stats = recalc_test_sessions(test_id)
         return jsonify({
             "message": "Test updated successfully",
@@ -284,8 +302,38 @@ def toggle_visibility(test_id, current_user=None):
     existing_test = get_test_by_id(test_id)
     if not existing_test:
         return jsonify({"error": "Test not found"}), 404
+    before_meta = {
+        "title": existing_test.get("title"),
+        "direction": existing_test.get("direction"),
+        "startDate": existing_test.get("startDate"),
+        "endDate": existing_test.get("endDate"),
+        "timeLimitMinutes": existing_test.get("timeLimitMinutes"),
+        "published": existing_test.get("published"),
+        "visible": existing_test.get("visible"),
+    }
     result = toggle_test_visibility(test_id)
     if result["success"]:
+        try:
+            updated_test = get_test_by_id(test_id)
+            if updated_test:
+                after_meta = {
+                    "title": updated_test.get("title"),
+                    "direction": updated_test.get("direction"),
+                    "startDate": updated_test.get("startDate"),
+                    "endDate": updated_test.get("endDate"),
+                    "timeLimitMinutes": updated_test.get("timeLimitMinutes"),
+                    "published": updated_test.get("published"),
+                    "visible": updated_test.get("visible"),
+                }
+                log_test_metadata_change(
+                    test_id=test_id,
+                    before_meta=before_meta,
+                    after_meta=after_meta,
+                    actor=current_user,
+                    source="toggle_visibility",
+                )
+        except Exception as exc:
+            print(f"[audit] failed to log visibility change for {test_id}: {exc}")
         return jsonify({
             "message": result["message"],
             "visible": result["visible"],
@@ -300,8 +348,38 @@ def toggle_published(test_id, current_user=None):
     existing_test = get_test_by_id(test_id)
     if not existing_test:
         return jsonify({"error": "Test not found"}), 404
+    before_meta = {
+        "title": existing_test.get("title"),
+        "direction": existing_test.get("direction"),
+        "startDate": existing_test.get("startDate"),
+        "endDate": existing_test.get("endDate"),
+        "timeLimitMinutes": existing_test.get("timeLimitMinutes"),
+        "published": existing_test.get("published"),
+        "visible": existing_test.get("visible"),
+    }
     result = toggle_test_published(test_id)
     if result["success"]:
+        try:
+            updated_test = get_test_by_id(test_id)
+            if updated_test:
+                after_meta = {
+                    "title": updated_test.get("title"),
+                    "direction": updated_test.get("direction"),
+                    "startDate": updated_test.get("startDate"),
+                    "endDate": updated_test.get("endDate"),
+                    "timeLimitMinutes": updated_test.get("timeLimitMinutes"),
+                    "published": updated_test.get("published"),
+                    "visible": updated_test.get("visible"),
+                }
+                log_test_metadata_change(
+                    test_id=test_id,
+                    before_meta=before_meta,
+                    after_meta=after_meta,
+                    actor=current_user,
+                    source="toggle_published",
+                )
+        except Exception as exc:
+            print(f"[audit] failed to log published change for {test_id}: {exc}")
         return jsonify({
             "message": result["message"],
             "published": result["published"],
@@ -409,6 +487,66 @@ def admin_attempts_by_test(test_id, current_user=None):
     if not result.get('success'):
         code = 404 if result.get('error') == 'test_not_found' else 400
         return jsonify(result), code
+    return jsonify(result)
+
+
+@tests_bp.route('/test/<test_id>/changes', methods=['GET'])
+@require_role('admin')
+def admin_test_changes(test_id, current_user=None):
+    if not get_test_by_id(test_id):
+        return jsonify({"success": False, "error": "test_not_found"}), 404
+    page = request.args.get('page', type=int, default=1)
+    limit = request.args.get('limit', type=int, default=20)
+    event_type = request.args.get('eventType')
+    question_id_raw = request.args.get('questionId')
+    question_id = None
+    if question_id_raw is not None:
+        try:
+            question_id = int(question_id_raw)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "invalid_question_id"}), 400
+
+    try:
+        result = list_test_changes(
+            test_id=test_id,
+            page=page,
+            limit=limit,
+            question_id=question_id,
+            event_type=event_type,
+        )
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+    return jsonify(result)
+
+
+@tests_bp.route('/test/<test_id>/question/<int:question_id>/changes', methods=['GET'])
+@require_role('admin')
+def admin_test_question_changes(test_id, question_id, current_user=None):
+    if not get_test_by_id(test_id):
+        return jsonify({"success": False, "error": "test_not_found"}), 404
+    page = request.args.get('page', type=int, default=1)
+    limit = request.args.get('limit', type=int, default=20)
+    try:
+        result = list_question_changes(
+            test_id=test_id,
+            question_id=question_id,
+            page=page,
+            limit=limit,
+        )
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+    return jsonify(result)
+
+
+@tests_bp.route('/tests/changes/recent', methods=['GET'])
+@require_role('admin')
+def admin_tests_changes_recent(current_user=None):
+    page = request.args.get('page', type=int, default=1)
+    limit = request.args.get('limit', type=int, default=20)
+    try:
+        result = list_recent_test_changes(page=page, limit=limit)
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
     return jsonify(result)
 
 
