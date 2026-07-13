@@ -362,6 +362,10 @@ def _run_import_job(job_id: int) -> None:
                 job_id,
                 progress_callback=_make_progress_callback(job_id),
             )
+        elif import_type == "cards":
+            from cpm_back.services.card_import.import_runner import run_cards_import
+
+            run_cards_import(job_id, progress_callback=_make_progress_callback(job_id))
         else:
             from .import_runner import run_users_import
 
