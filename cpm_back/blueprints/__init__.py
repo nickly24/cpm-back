@@ -15,6 +15,7 @@ from .exams_bp import exams_bp
 from .external_tests_bp import external_tests_bp
 from .external_test_results_import_bp import external_test_results_import_bp
 from .card_import_bp import card_import_bp
+from .card_transform_bp import card_transform_bp
 from .ratings_bp import ratings_bp
 from .user_import_bp import user_import_bp
 from .test_import_bp import test_import_bp
@@ -39,6 +40,7 @@ __all__ = [
     'external_tests_bp',
     'external_test_results_import_bp',
     'card_import_bp',
+    'card_transform_bp',
     'ratings_bp',
     'user_import_bp',
     'test_import_bp',

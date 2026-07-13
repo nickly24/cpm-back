@@ -28,6 +28,7 @@ from .blueprints import (
     external_tests_bp,
     external_test_results_import_bp,
     card_import_bp,
+    card_transform_bp,
     ratings_bp,
     user_import_bp,
     test_import_bp,
@@ -169,6 +170,7 @@ def create_app():
     app.register_blueprint(external_tests_bp)
     app.register_blueprint(external_test_results_import_bp)
     app.register_blueprint(card_import_bp)
+    app.register_blueprint(card_transform_bp)
     app.register_blueprint(ratings_bp)
     app.register_blueprint(user_import_bp)
     app.register_blueprint(test_import_bp)

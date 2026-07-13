@@ -132,6 +132,8 @@ def create_test_draft(payload, current_user=None):
         "lockedByName": None,
         "lockedUntil": None,
     }
+    if (payload or {}).get("source") is not None:
+        doc["source"] = payload.get("source")
     result = db.test_drafts.insert_one(doc)
     return get_test_draft(str(result.inserted_id))
 
