@@ -6,6 +6,7 @@ from cpm_back.services.exam.create_test import get_test_by_id
 from cpm_back.services.exam.create_test_session import get_test_session_by_id
 from cpm_back.services.exam.test_sanitize import sanitize_question
 from cpm_back.services.exam.visibility import can_show_correct_answers
+from cpm_back.services.exam.test_versions import get_test_version
 
 
 def _correct_answer_payload(question, show_correct):
@@ -28,7 +29,9 @@ def build_session_review(session_id, role):
         return {"success": False, "error": "session_not_found"}
 
     test_id = session.get("testId")
-    test = get_test_by_id(test_id) if test_id else None
+    test = get_test_version(session.get("testVersionId")) if session.get("testVersionId") else None
+    if not test:
+        test = get_test_by_id(test_id) if test_id else None
     if not test:
         return {"success": False, "error": "test_not_found"}
 

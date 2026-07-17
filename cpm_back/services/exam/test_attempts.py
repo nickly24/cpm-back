@@ -1,4 +1,6 @@
 """Попытки прохождения теста (in_progress) в MongoDB test_attempts."""
+import hashlib
+import json
 import random
 from datetime import datetime
 
@@ -14,16 +16,21 @@ from cpm_back.services.exam.create_test_session import (
 from cpm_back.services.exam.scoring import score_attempt_answers
 from cpm_back.services.exam.test_sanitize import enrich_questions_with_locks, questions_in_order
 from cpm_back.services.exam.test_time import (
+    MOSCOW_TZ,
+    build_attempt_time_fields,
     compute_expires_at,
     is_test_window_open,
     now_utc_iso,
     remaining_seconds,
     to_datetime,
 )
+from cpm_back.services.exam.test_versions import ensure_test_version, get_test_version
 
 STATUS_IN_PROGRESS = "in_progress"
 STATUS_SUBMITTED = "submitted"
 STATUS_EXPIRED = "expired"
+STATUS_EXPIRED_PENDING_UPLOAD = "expired_pending_upload"
+STATUS_FINALIZING = "finalizing"
 
 _index_ensured = False
 
@@ -37,6 +44,8 @@ def _ensure_indexes():
         [("studentId", 1), ("testId", 1), ("status", 1)],
         name="student_test_status",
     )
+    db.test_attempts.create_index([("studentId", 1), ("status", 1), ("isPractice", 1), ("testId", 1)], name="student_attempt_catalog")
+    db.test_attempts.create_index([("testId", 1), ("status", 1)], name="test_attempt_status")
     try:
         db.test_attempts.create_index(
             [("studentId", 1), ("testId", 1)],
@@ -125,11 +134,293 @@ def _attempt_accepts_answers(doc):
     return doc, "attempt_not_active"
 
 
+def _definition_for_attempt(doc):
+    version = get_test_version(doc.get("testVersionId")) if doc.get("testVersionId") else None
+    if version:
+        version = dict(version)
+        version.pop("_id", None)
+        version["_immutableVersionId"] = str(doc.get("testVersionId"))
+        return version
+    return _get_test_document(doc.get("testId"))
+
+
+def _validate_answer(answer, question):
+    if not isinstance(answer, dict) or not question:
+        return None, "invalid_question_id"
+    if answer.get("type") != question.get("type"):
+        return None, "invalid_answer_type"
+    qid = question.get("questionId")
+    q_type = question.get("type")
+    base = {"questionId": qid, "type": q_type}
+    allowed = {str(item.get("id")) for item in (question.get("answers") or [])}
+    if q_type == "single":
+        selected = answer.get("selectedAnswer")
+        if selected is None or str(selected) not in allowed:
+            return None, "invalid_answer_option"
+        base["selectedAnswer"] = str(selected)
+    elif q_type == "multiple":
+        selected = [str(value) for value in (answer.get("selectedAnswers") or [])]
+        if not selected or len(selected) != len(set(selected)) or not set(selected).issubset(allowed):
+            return None, "invalid_answer_option"
+        base["selectedAnswers"] = selected
+    elif q_type == "text":
+        text = str(answer.get("textAnswer") or "").strip()
+        if not text:
+            return None, "invalid_text_answer"
+        base["textAnswer"] = text
+    else:
+        return None, "invalid_answer_type"
+    return base, None
+
+
+def sync_attempt_commits(attempt_id, student_id, commits):
+    """Idempotent v2 mirror. Local committed answers remain authoritative."""
+    student_id = normalize_student_id(student_id)
+    if not isinstance(commits, list) or not commits:
+        return {"success": False, "error": "commits_required"}
+    if len(commits) > 25:
+        return {"success": False, "error": "commits_batch_too_large"}
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id), "studentId": student_id})
+    except Exception:
+        doc = None
+    if not doc:
+        return {"success": False, "error": "attempt_not_found"}
+    doc = _mark_expired_if_needed(doc)
+    if doc.get("status") != STATUS_IN_PROGRESS:
+        return {"success": False, "error": "time_expired"}
+
+    definition = _definition_for_attempt(doc) or {}
+    by_qid = {q.get("questionId"): q for q in (definition.get("questions") or [])}
+    acked, conflicts, errors = [], [], []
+    seen_ids = {item.get("commitId") for item in (doc.get("commits") or [])}
+    for item in commits:
+        commit_id = str(item.get("commitId") or "")
+        qid = item.get("questionId")
+        if not commit_id:
+            errors.append({"questionId": qid, "error": "commit_id_required"})
+            continue
+        if commit_id in seen_ids:
+            acked.append(commit_id)
+            continue
+        if not isinstance(qid, int) or isinstance(qid, bool) or qid <= 0:
+            errors.append({"questionId": qid, "commitId": commit_id, "error": "invalid_question_id"})
+            continue
+        normalized, error = _validate_answer(item, by_qid.get(qid))
+        if error:
+            errors.append({"questionId": qid, "commitId": commit_id, "error": error})
+            continue
+        existing = next((a for a in (doc.get("answers") or []) if a.get("questionId") == qid), None)
+        if existing and not _answers_equal(existing, normalized):
+            conflicts.append({"questionId": qid, "commitId": commit_id, "error": "server_answer_conflict"})
+            continue
+        commit_doc = {
+            **normalized,
+            "commitId": commit_id,
+            "sequence": int(item.get("sequence") or 0),
+            "committedAtMoscow": item.get("committedAtMoscow"),
+        }
+        if commit_doc["sequence"] <= 0:
+            errors.append({"questionId": qid, "commitId": commit_id, "error": "invalid_commit_sequence"})
+            continue
+        committed_at = item.get("committedAtMoscow")
+        try:
+            parsed_committed_at = datetime.fromisoformat(str(committed_at))
+        except Exception:
+            parsed_committed_at = None
+        if (
+            not parsed_committed_at
+            or not parsed_committed_at.tzinfo
+            or parsed_committed_at.utcoffset() is None
+            or parsed_committed_at.utcoffset().total_seconds() != 10_800
+        ):
+            errors.append({"questionId": qid, "commitId": commit_id, "error": "invalid_committed_at"})
+            continue
+        commit_doc["committedAtMoscow"] = parsed_committed_at.astimezone(MOSCOW_TZ).isoformat()
+        query = {"_id": doc["_id"], "status": STATUS_IN_PROGRESS, "commits.commitId": {"$ne": commit_id}}
+        update = {"$push": {"commits": commit_doc}, "$set": {"lastSyncAtMoscow": datetime.now(MOSCOW_TZ).isoformat()}}
+        if not existing:
+            query["answers.questionId"] = {"$ne": qid}
+            update["$push"]["answers"] = normalized
+        result = _collection().update_one(query, update)
+        if result.modified_count or _collection().find_one({"_id": doc["_id"], "commits.commitId": commit_id}):
+            acked.append(commit_id)
+            seen_ids.add(commit_id)
+            continue
+        fresh = _collection().find_one({"_id": doc["_id"]}) or {}
+        fresh_answer = next((a for a in (fresh.get("answers") or []) if a.get("questionId") == qid), None)
+        if fresh_answer and _answers_equal(fresh_answer, normalized):
+            mirrored = _collection().update_one(
+                {"_id": doc["_id"], "status": STATUS_IN_PROGRESS, "commits.commitId": {"$ne": commit_id}},
+                {"$push": {"commits": commit_doc}, "$set": {"lastSyncAtMoscow": datetime.now(MOSCOW_TZ).isoformat()}},
+            )
+            if mirrored.modified_count or _collection().find_one({"_id": doc["_id"], "commits.commitId": commit_id}):
+                acked.append(commit_id)
+                seen_ids.add(commit_id)
+        elif fresh_answer:
+            conflicts.append({"questionId": qid, "commitId": commit_id, "error": "server_answer_conflict"})
+
+    server_count = len((_collection().find_one({"_id": doc["_id"]}, {"answers": 1}) or {}).get("answers") or [])
+    return {
+        "success": not errors and not conflicts,
+        "ackedCommitIds": acked,
+        "conflicts": conflicts,
+        "errors": errors,
+        "serverAnswerCount": server_count,
+        "serverNowMoscow": datetime.now(MOSCOW_TZ).isoformat(),
+        "serverNowEpochMs": int(datetime.now(MOSCOW_TZ).timestamp() * 1000),
+    }
+
+
+def _canonical_snapshot_hash(snapshot):
+    raw = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def finalize_attempt_v2(attempt_id, student_id, payload):
+    """Idempotent finalization saga; final local snapshot wins over the mirror."""
+    student_id = normalize_student_id(student_id)
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id), "studentId": student_id})
+    except Exception:
+        doc = None
+    if not doc:
+        return {"success": False, "error": "attempt_not_found"}
+    if doc.get("schemaVersion") != 2 or doc.get("isPractice"):
+        return {"success": False, "error": "v2_attempt_required"}
+    if doc.get("status") == STATUS_SUBMITTED and doc.get("linkedSessionId"):
+        return {
+            "success": True,
+            "alreadyFinalized": True,
+            "sessionId": doc.get("linkedSessionId"),
+            "score": doc.get("finalScore"),
+            "stats": doc.get("finalStats"),
+        }
+
+    snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+    if not isinstance(snapshot, dict):
+        return {"success": False, "error": "snapshot_required"}
+    supplied_answers = snapshot.get("answers") or []
+    if not isinstance(supplied_answers, list):
+        return {"success": False, "error": "invalid_snapshot"}
+    if str(snapshot.get("attemptId") or "") != str(attempt_id):
+        return {"success": False, "error": "attempt_id_mismatch"}
+    if snapshot.get("reason") not in ("manual", "timeout"):
+        return {"success": False, "error": "invalid_snapshot_reason"}
+    try:
+        completed_at = datetime.fromisoformat(str(snapshot.get("completedAtMoscow")))
+    except Exception:
+        completed_at = None
+    if (
+        not completed_at
+        or not completed_at.tzinfo
+        or completed_at.utcoffset() is None
+        or completed_at.utcoffset().total_seconds() != 10_800
+    ):
+        return {"success": False, "error": "invalid_completed_at"}
+
+    upload_deadline = to_datetime(doc.get("uploadDeadlineMoscow"))
+    if (
+        doc.get("status") != STATUS_FINALIZING
+        and upload_deadline
+        and datetime.now(MOSCOW_TZ) > upload_deadline.astimezone(MOSCOW_TZ)
+    ):
+        return {"success": False, "error": "upload_window_closed"}
+    if str(snapshot.get("testVersionId") or "") != str(doc.get("testVersionId") or ""):
+        return {"success": False, "error": "test_version_mismatch"}
+
+    definition = _definition_for_attempt(doc) or {}
+    questions = definition.get("questions") or []
+    by_qid = {q.get("questionId"): q for q in questions}
+    normalized_answers, errors, seen_qids = [], [], set()
+    for item in supplied_answers:
+        qid = item.get("questionId") if isinstance(item, dict) else None
+        if qid in seen_qids:
+            errors.append({"questionId": qid, "error": "duplicate_question_id"})
+            continue
+        seen_qids.add(qid)
+        normalized, error = _validate_answer(item, by_qid.get(qid))
+        if error:
+            errors.append({"questionId": qid, "error": error})
+        else:
+            normalized_answers.append(normalized)
+    if errors:
+        return {"success": False, "error": "invalid_snapshot", "errors": errors}
+
+    order = doc.get("questionOrder") or []
+    raw_by_qid = {item["questionId"]: item for item in normalized_answers}
+    scored_answers, score = score_attempt_answers(questions, order, raw_by_qid)
+    correct = sum(1 for item in scored_answers if item.get("isCorrect"))
+    stats = {
+        "correctAnswers": correct,
+        "totalQuestions": len(order),
+        "accuracy": round((correct / len(order)) * 100) if order else 0,
+        "totalPoints": sum(int(item.get("points") or 0) for item in scored_answers),
+    }
+    canonical_snapshot = {
+        "attemptId": str(attempt_id),
+        "testVersionId": str(doc.get("testVersionId")),
+        "answers": supplied_answers,
+        "completedAtMoscow": snapshot.get("completedAtMoscow"),
+        "reason": snapshot.get("reason") or "manual",
+        "answeredCount": len(supplied_answers),
+        "unansweredCount": max(0, len(order) - len(supplied_answers)),
+    }
+    snapshot_hash = _canonical_snapshot_hash(canonical_snapshot)
+    if snapshot.get("snapshotHash") != snapshot_hash:
+        return {"success": False, "error": "snapshot_hash_mismatch"}
+    mirror_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
+    conflicts = [qid for qid, answer in raw_by_qid.items() if qid in mirror_by_qid and not _answers_equal(mirror_by_qid[qid], answer)]
+
+    if doc.get("status") != STATUS_FINALIZING:
+        _collection().update_one(
+            {"_id": doc["_id"], "status": {"$in": [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]}},
+            {"$set": {
+                "status": STATUS_FINALIZING,
+                "finalSnapshot": canonical_snapshot,
+                "finalSnapshotHash": snapshot_hash,
+                "finalScore": score,
+                "finalStats": stats,
+                "finalConflictingQuestionIds": conflicts,
+                "answers": normalized_answers,
+                "finalizingAtMoscow": datetime.now(MOSCOW_TZ).isoformat(),
+            }},
+        )
+    session_result = insert_completed_test_session(
+        student_id=student_id,
+        test_id=doc.get("testId"),
+        test_title=definition.get("title") or "",
+        answers=scored_answers,
+        score=score,
+        time_spent_minutes=max(1, int((datetime.now(MOSCOW_TZ) - to_datetime(doc.get("startedAtMoscow"))).total_seconds() // 60)) if to_datetime(doc.get("startedAtMoscow")) else 1,
+        question_order=order,
+        attempt_id=str(attempt_id),
+        test_version_id=doc.get("testVersionId"),
+        final_snapshot_hash=snapshot_hash,
+    )
+    if not session_result.get("success") and session_result.get("error") != "test_already_completed":
+        return session_result
+    session_id = session_result.get("sessionId") or session_result.get("existingSessionId")
+    _collection().update_one(
+        {"_id": doc["_id"]},
+        {"$set": {
+            "status": STATUS_SUBMITTED,
+            "submittedAtMoscow": datetime.now(MOSCOW_TZ).isoformat(),
+            "linkedSessionId": session_id,
+            "finalScore": score,
+            "finalStats": stats,
+        }},
+    )
+    return {"success": True, "sessionId": session_id, "score": score, "stats": stats, "conflictCount": len(conflicts)}
+
+
 def build_question_order(test):
     questions = test.get("questions") or []
     question_ids = [q.get("questionId") for q in questions if q.get("questionId") is not None]
     if not question_ids:
         return None, "test_has_no_questions"
+    if any(not isinstance(qid, int) or isinstance(qid, bool) or qid <= 0 for qid in question_ids):
+        return None, "invalid_question_ids_in_test"
     unique_ids = list(dict.fromkeys(question_ids))
     if len(unique_ids) != len(question_ids):
         return None, "duplicate_question_ids_in_test"
@@ -145,7 +436,10 @@ def _serialize_attempt(doc, test=None, include_questions=False):
         return None
     attempt_id = str(doc["_id"])
     expires_at = doc.get("expiresAt")
-    time_expired = doc.get("status") == STATUS_EXPIRED
+    schema_version = int(doc.get("schemaVersion") or 1)
+    public_started_at = doc.get("startedAtMoscow") if schema_version == 2 else doc.get("startedAt")
+    public_expires_at = doc.get("answerDeadlineMoscow") if schema_version == 2 else expires_at
+    time_expired = doc.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD)
     if not time_expired and expires_at:
         if remaining_seconds(expires_at) <= 0 and doc.get("status") == STATUS_IN_PROGRESS:
             time_expired = True
@@ -157,8 +451,8 @@ def _serialize_attempt(doc, test=None, include_questions=False):
         "testId": doc.get("testId"),
         "status": STATUS_EXPIRED if time_expired and doc.get("status") == STATUS_IN_PROGRESS else doc.get("status"),
         "isPractice": bool(doc.get("isPractice")),
-        "startedAt": doc.get("startedAt"),
-        "expiresAt": expires_at,
+        "startedAt": public_started_at,
+        "expiresAt": public_expires_at,
         "remainingSeconds": 0 if time_expired else remaining_seconds(expires_at),
         "timeExpired": time_expired,
         "questionOrder": doc.get("questionOrder") or [],
@@ -166,7 +460,24 @@ def _serialize_attempt(doc, test=None, include_questions=False):
         "answeredCount": len(answered_ids),
         "totalQuestions": len(doc.get("questionOrder") or []),
         "linkedSessionId": doc.get("linkedSessionId"),
+        "serverReceivedAnswerCount": len(answers),
+        "lastSyncAtMoscow": doc.get("lastSyncAtMoscow"),
+        "finalSnapshotHash": doc.get("finalSnapshotHash"),
+        "finalSnapshotConflicted": bool(doc.get("finalConflictingQuestionIds")),
+        "uploadedAtMoscow": doc.get("submittedAtMoscow"),
+        "schemaVersion": schema_version,
+        "testVersionId": doc.get("testVersionId"),
+        "serverNowMoscow": build_attempt_time_fields(
+            doc.get("startedAtMoscow") or doc.get("startedAt"), 0
+        )["serverNowMoscow"],
+        "serverNowEpochMs": int(datetime.now(MOSCOW_TZ).timestamp() * 1000),
     }
+    for key in (
+        "startedAtMoscow", "startedAtEpochMs", "answerDeadlineMoscow",
+        "answerDeadlineEpochMs", "uploadDeadlineMoscow", "uploadDeadlineEpochMs",
+    ):
+        if doc.get(key) is not None:
+            payload[key] = doc.get(key)
     if include_questions and test:
         sanitized = questions_in_order(test, payload["questionOrder"])
         payload["questions"] = enrich_questions_with_locks(sanitized, answered_ids)
@@ -179,7 +490,10 @@ def _mark_expired_if_needed(doc):
     if remaining_seconds(doc.get("expiresAt")) <= 0:
         _collection().update_one(
             {"_id": doc["_id"]},
-            {"$set": {"status": STATUS_EXPIRED, "expiredAt": now_utc_iso()}},
+            {"$set": {
+                "status": STATUS_EXPIRED_PENDING_UPLOAD if doc.get("schemaVersion") == 2 else STATUS_EXPIRED,
+                "expiredAt": now_utc_iso(),
+            }},
         )
         doc = _collection().find_one({"_id": doc["_id"]})
     return doc
@@ -198,15 +512,16 @@ def _insert_attempt_doc(coll, doc, test):
             return {
                 "success": True,
                 "resumed": True,
-                "attempt": _serialize_attempt(existing, test, include_questions=True),
+                "attempt": _serialize_attempt(existing, _definition_for_attempt(existing) or test, include_questions=True),
             }
         return {"success": False, "error": "attempt_conflict"}
 
     doc["_id"] = result.inserted_id
+    definition = _definition_for_attempt(doc) or test
     return {
         "success": True,
         "resumed": False,
-        "attempt": _serialize_attempt(doc, test, include_questions=True),
+        "attempt": _serialize_attempt(doc, definition, include_questions=True),
     }
 
 
@@ -219,24 +534,24 @@ def _resume_pending_attempt(coll, student_id, test_id, test, is_practice):
     existing = coll.find_one({**filters, "status": STATUS_IN_PROGRESS})
     if existing:
         existing = _mark_expired_if_needed(existing)
-        if existing.get("status") in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+        if existing.get("status") in (STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
             return {
                 "success": True,
                 "resumed": True,
-                "attempt": _serialize_attempt(existing, test, include_questions=True),
+                "attempt": _serialize_attempt(existing, _definition_for_attempt(existing) or test, include_questions=True),
             }
 
-    expired = coll.find_one({**filters, "status": STATUS_EXPIRED})
+    expired = coll.find_one({**filters, "status": {"$in": [STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]}})
     if expired:
         return {
             "success": True,
             "resumed": True,
-            "attempt": _serialize_attempt(expired, test, include_questions=True),
+            "attempt": _serialize_attempt(expired, _definition_for_attempt(expired) or test, include_questions=True),
         }
     return None
 
 
-def start_attempt(student_id, test_id, is_practice=False):
+def start_attempt(student_id, test_id, is_practice=False, client_schema_version=None):
     student_id = normalize_student_id(student_id)
     if student_id is None:
         return {"success": False, "error": "invalid_student_id"}
@@ -246,6 +561,7 @@ def start_attempt(student_id, test_id, is_practice=False):
         return {"success": False, "error": "test_not_found"}
 
     coll = _collection()
+    schema_version = 1 if is_practice else (2 if int(client_schema_version or 1) >= 2 else 1)
 
     if is_practice:
         if not get_test_session_by_student_and_test(student_id, test_id):
@@ -276,10 +592,6 @@ def start_attempt(student_id, test_id, is_practice=False):
         }
         return _insert_attempt_doc(coll, doc, test)
 
-    open_ok, window_err = is_test_window_open(test)
-    if not open_ok:
-        return {"success": False, "error": window_err}
-
     if get_test_session_by_student_and_test(student_id, test_id):
         return {"success": False, "error": "test_already_completed"}
 
@@ -295,29 +607,33 @@ def start_attempt(student_id, test_id, is_practice=False):
             return {
                 "success": True,
                 "resumed": True,
-                "attempt": _serialize_attempt(existing, test, include_questions=True),
+                "attempt": _serialize_attempt(existing, _definition_for_attempt(existing) or test, include_questions=True),
             }
-        if existing.get("status") == STATUS_EXPIRED:
+        if existing.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
             if get_test_session_by_student_and_test(student_id, test_id):
                 return {"success": False, "error": "attempt_expired"}
             return {
                 "success": True,
                 "resumed": True,
-                "attempt": _serialize_attempt(existing, test, include_questions=True),
+                "attempt": _serialize_attempt(existing, _definition_for_attempt(existing) or test, include_questions=True),
             }
 
     expired_pending = coll.find_one({
         "studentId": student_id,
         "testId": str(test_id),
-        "status": STATUS_EXPIRED,
+        "status": {"$in": [STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]},
         "isPractice": False,
     })
     if expired_pending and not get_test_session_by_student_and_test(student_id, test_id):
         return {
             "success": True,
             "resumed": True,
-            "attempt": _serialize_attempt(expired_pending, test, include_questions=True),
+            "attempt": _serialize_attempt(expired_pending, _definition_for_attempt(expired_pending) or test, include_questions=True),
         }
+
+    open_ok, window_err = is_test_window_open(test)
+    if not open_ok:
+        return {"success": False, "error": window_err}
 
     order, order_err = build_question_order(test)
     if order_err:
@@ -326,6 +642,8 @@ def start_attempt(student_id, test_id, is_practice=False):
     started_at = now_utc_iso()
     time_limit = int(test.get("timeLimitMinutes") or 0)
     expires_at = compute_expires_at(started_at, time_limit)
+    time_fields = build_attempt_time_fields(started_at, time_limit)
+    version = ensure_test_version(test) if schema_version == 2 else None
 
     doc = {
         "studentId": student_id,
@@ -337,7 +655,11 @@ def start_attempt(student_id, test_id, is_practice=False):
         "questionOrder": order,
         "answers": [],
         "createdAt": started_at,
+        "schemaVersion": schema_version,
+        **time_fields,
     }
+    if version:
+        doc["testVersionId"] = str(version["_id"])
     return _insert_attempt_doc(coll, doc, test)
 
 
@@ -350,7 +672,7 @@ def get_attempt_for_student(attempt_id, student_id):
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
     doc = _mark_expired_if_needed(doc)
-    test = _get_test_document(doc.get("testId"))
+    test = _definition_for_attempt(doc)
     return {"success": True, "attempt": _serialize_attempt(doc, test, include_questions=True)}
 
 
@@ -367,7 +689,7 @@ def get_active_attempt(student_id, test_id):
     doc = _mark_expired_if_needed(doc)
     if doc.get("status") != STATUS_IN_PROGRESS:
         return {"success": True, "attempt": None}
-    test = _get_test_document(test_id)
+    test = _definition_for_attempt(doc)
     return {"success": True, "attempt": _serialize_attempt(doc, test, include_questions=True)}
 
 
@@ -396,7 +718,7 @@ def get_expired_attempt_summary(student_id, test_id):
     doc = _collection().find_one({
         "studentId": student_id,
         "testId": str(test_id),
-        "status": STATUS_EXPIRED,
+        "status": {"$in": [STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]},
         "isPractice": False,
     })
     if not doc:
@@ -481,7 +803,7 @@ def patch_answer(attempt_id, student_id, answer_data, include_questions=False):
     elif not idempotent:
         doc = _collection().find_one({"_id": ObjectId(attempt_id)})
 
-    test = _get_test_document(doc.get("testId")) if include_questions else None
+    test = _definition_for_attempt(doc) if include_questions else None
     payload = {
         "success": True,
         "attempt": _serialize_attempt(doc, test, include_questions=include_questions),
@@ -566,7 +888,7 @@ def submit_attempt(attempt_id, student_id):
     if status == STATUS_SUBMITTED:
         return {"success": False, "error": "attempt_not_active"}
 
-    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
         return {"success": False, "error": "attempt_not_active"}
 
     if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
@@ -576,7 +898,7 @@ def submit_attempt(attempt_id, student_id):
     if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
         return {"success": False, "error": "time_expired"}
 
-    test = _get_test_document(doc.get("testId"))
+    test = _definition_for_attempt(doc)
     if not test:
         return {"success": False, "error": "test_not_found"}
 
@@ -589,9 +911,8 @@ def submit_attempt(attempt_id, student_id):
     raw_by_qid = {a.get("questionId"): a for a in raw_answers}
     scored_answers, score = score_attempt_answers(questions, order, raw_by_qid)
 
-    from datetime import datetime as dt
     started = to_datetime(doc.get("startedAt"))
-    completed = dt.utcnow()
+    completed = datetime.now(MOSCOW_TZ)
     time_spent = 1
     if started:
         time_spent = max(1, int((completed - started).total_seconds() // 60) or 1)
@@ -676,10 +997,10 @@ def force_submit_attempt_admin(attempt_id):
     if status == STATUS_SUBMITTED:
         return {"success": False, "error": "attempt_not_active"}
 
-    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED):
+    if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
         return {"success": False, "error": "attempt_not_active"}
 
-    test = _get_test_document(doc.get("testId"))
+    test = _definition_for_attempt(doc)
     if not test:
         return {"success": False, "error": "test_not_found"}
 
@@ -692,9 +1013,8 @@ def force_submit_attempt_admin(attempt_id):
     raw_by_qid = {a.get("questionId"): a for a in (doc.get("answers") or [])}
     scored_answers, score = score_attempt_answers(questions, order, raw_by_qid)
 
-    from datetime import datetime as dt
     started = to_datetime(doc.get("startedAt"))
-    completed = dt.utcnow()
+    completed = datetime.now(MOSCOW_TZ)
     time_spent = 1
     if started:
         time_spent = max(1, int((completed - started).total_seconds() // 60) or 1)
@@ -766,13 +1086,13 @@ def force_submit_attempt_admin(attempt_id):
 
 def _parse_status_filter(status_filter):
     if not status_filter or status_filter in ("active", "pending"):
-        return [STATUS_IN_PROGRESS, STATUS_EXPIRED]
+        return [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]
     if status_filter == "all":
-        return [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_SUBMITTED]
+        return [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD, STATUS_FINALIZING, STATUS_SUBMITTED]
     parts = [p.strip() for p in str(status_filter).split(",") if p.strip()]
-    allowed = {STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_SUBMITTED}
+    allowed = {STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD, STATUS_FINALIZING, STATUS_SUBMITTED}
     selected = [p for p in parts if p in allowed]
-    return selected or [STATUS_IN_PROGRESS, STATUS_EXPIRED]
+    return selected or [STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]
 
 
 def _attempts_match_query(test_id, status_filter=None, student_ids=None):
@@ -832,6 +1152,10 @@ def list_attempts_by_test_paginated(
                 "isPractice": 1,
                 "startedAt": 1,
                 "expiresAt": 1,
+                "startedAtMoscow": 1,
+                "answerDeadlineMoscow": 1,
+                "uploadDeadlineMoscow": 1,
+                "lastSyncAtMoscow": 1,
                 "linkedSessionId": 1,
                 "submittedAt": 1,
                 "answeredCount": {"$size": {"$ifNull": ["$answers", []]}},
@@ -849,6 +1173,10 @@ def list_attempts_by_test_paginated(
             "isPractice": row.get("isPractice"),
             "startedAt": row.get("startedAt"),
             "expiresAt": row.get("expiresAt"),
+            "startedAtMoscow": row.get("startedAtMoscow"),
+            "answerDeadlineMoscow": row.get("answerDeadlineMoscow"),
+            "uploadDeadlineMoscow": row.get("uploadDeadlineMoscow"),
+            "lastSyncAtMoscow": row.get("lastSyncAtMoscow"),
             "linkedSessionId": row.get("linkedSessionId"),
             "submittedAt": row.get("submittedAt"),
             "answers": [{}] * row.get("answeredCount", 0),
@@ -862,7 +1190,7 @@ def _serialize_attempt_list_item(doc):
     if not doc:
         return None
     expires_at = doc.get("expiresAt")
-    time_expired = doc.get("status") == STATUS_EXPIRED
+    time_expired = doc.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD)
     if not time_expired and expires_at and doc.get("status") == STATUS_IN_PROGRESS:
         if remaining_seconds(expires_at) <= 0:
             time_expired = True
@@ -877,8 +1205,11 @@ def _serialize_attempt_list_item(doc):
         "testId": doc.get("testId"),
         "status": status,
         "isPractice": bool(doc.get("isPractice")),
-        "startedAt": doc.get("startedAt"),
-        "expiresAt": expires_at,
+        "startedAt": doc.get("startedAtMoscow") or doc.get("startedAt"),
+        "expiresAt": doc.get("answerDeadlineMoscow") or expires_at,
+        "answerDeadlineMoscow": doc.get("answerDeadlineMoscow"),
+        "uploadDeadlineMoscow": doc.get("uploadDeadlineMoscow"),
+        "lastSyncAtMoscow": doc.get("lastSyncAtMoscow"),
         "remainingSeconds": 0 if time_expired else remaining_seconds(expires_at),
         "timeExpired": time_expired,
         "answeredCount": len(answers),
@@ -937,7 +1268,7 @@ def get_attempt_admin_detail(attempt_id, brief=False):
             "attempt": _serialize_attempt_list_item(doc),
         }
 
-    test = _get_test_document(doc.get("testId"))
+    test = _definition_for_attempt(doc)
     from cpm_back.services.exam.student_names import (
         get_student_names_by_ids,
         resolve_student_name,

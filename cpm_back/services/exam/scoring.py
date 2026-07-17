@@ -16,8 +16,8 @@ def score_multiple(selected_answer_ids, question):
     total_available = int(question.get("points", 0))
     selected_set = set(selected_answer_ids or [])
     all_correct_ids = {a.get("id") for a in question.get("answers", []) if a.get("isCorrect")}
-    all_incorrect_ids = {a.get("id") for a in question.get("answers", []) if not a.get("isCorrect")}
-    if selected_set.issuperset(all_correct_ids) and selected_set.isdisjoint(all_incorrect_ids):
+    all_known_ids = {a.get("id") for a in question.get("answers", [])}
+    if selected_set == all_correct_ids and selected_set.issubset(all_known_ids):
         return total_available, True
     return 0, False
 

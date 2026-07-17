@@ -1,6 +1,14 @@
-from datetime import datetime
 from bson import ObjectId
 from cpm_back.db.mongo import get_mongo_db
+from cpm_back.services.exam.test_time import MOSCOW_TZ, now_moscow_iso, to_datetime
+
+
+def _normalize_test_dates(test_data):
+    for key in ("startDate", "endDate"):
+        if key in test_data and test_data.get(key):
+            parsed = to_datetime(test_data[key])
+            if parsed:
+                test_data[key] = parsed.astimezone(MOSCOW_TZ).isoformat()
 
 
 def create_test(test_data):
@@ -8,12 +16,15 @@ def create_test(test_data):
 
     db = get_mongo_db()
     tests_collection = db.tests
-    test_data["createdAt"] = datetime.utcnow().isoformat() + "Z"
+    _normalize_test_dates(test_data)
+    test_data["createdAt"] = now_moscow_iso()
     if "visible" not in test_data:
         test_data["visible"] = False
     if "published" not in test_data:
         test_data["published"] = True
     result = tests_collection.insert_one(test_data)
+    from cpm_back.services.exam.test_versions import create_test_version
+    create_test_version(str(result.inserted_id), test_data)
     invalidate_published_tests_cache()
     return str(result.inserted_id)
 
@@ -26,9 +37,14 @@ def update_test(test_id, test_data):
 
     db = get_mongo_db()
     tests_collection = db.tests
-    test_data["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    _normalize_test_dates(test_data)
+    test_data["updatedAt"] = now_moscow_iso()
     result = tests_collection.update_one({"_id": ObjectId(test_id)}, {"$set": test_data})
     if result.modified_count > 0:
+        from cpm_back.services.exam.test_versions import create_test_version
+        current = tests_collection.find_one({"_id": ObjectId(test_id)})
+        if current and any(key in test_data for key in ("title", "direction", "questions")):
+            create_test_version(test_id, current)
         invalidate_test_cache(test_id)
         invalidate_published_tests_cache()
     return result.modified_count > 0
@@ -84,7 +100,7 @@ def toggle_test_visibility(test_id):
         new_visible = not current_visible
         result = tests_collection.update_one(
             {"_id": ObjectId(test_id)},
-            {"$set": {"visible": new_visible, "updatedAt": datetime.utcnow().isoformat() + "Z"}}
+            {"$set": {"visible": new_visible, "updatedAt": now_moscow_iso()}}
         )
         if result.modified_count > 0:
             from cpm_back.services.exam.exam_memory_cache import invalidate_published_tests_cache
@@ -107,7 +123,7 @@ def toggle_test_published(test_id):
         new_published = not current_published
         result = tests_collection.update_one(
             {"_id": ObjectId(test_id)},
-            {"$set": {"published": new_published, "updatedAt": datetime.utcnow().isoformat() + "Z"}},
+            {"$set": {"published": new_published, "updatedAt": now_moscow_iso()}},
         )
         if result.modified_count > 0:
             from cpm_back.services.exam.exam_memory_cache import (

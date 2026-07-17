@@ -20,6 +20,7 @@ from cpm_back.services.exam.student_names import (
 )
 from cpm_back.services.exam.test_attempts import (
     STATUS_EXPIRED,
+    STATUS_EXPIRED_PENDING_UPLOAD,
     STATUS_IN_PROGRESS,
     STATUS_SUBMITTED,
     count_attempts_by_test,
@@ -182,7 +183,7 @@ def get_test_admin_overview(test_id):
 
     session_stats = aggregate_test_sessions_stats(test_id)
     in_progress = count_attempts_by_test_and_status(test_id, [STATUS_IN_PROGRESS])
-    expired = count_attempts_by_test_and_status(test_id, [STATUS_EXPIRED])
+    expired = count_attempts_by_test_and_status(test_id, [STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD])
     submitted = count_attempts_by_test_and_status(test_id, [STATUS_SUBMITTED])
 
     return {

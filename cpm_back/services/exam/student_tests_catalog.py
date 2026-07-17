@@ -15,6 +15,7 @@ from cpm_back.services.exam.get_external_tests import (
 from cpm_back.services.exam.get_tests_by_direction import get_tests_by_direction
 from cpm_back.services.exam.test_attempts import (
     STATUS_EXPIRED,
+    STATUS_EXPIRED_PENDING_UPLOAD,
     normalize_student_id,
     remaining_seconds,
 )
@@ -23,8 +24,8 @@ MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 STUDENT_DEFAULT_LIMIT = 5
 STUDENT_MAX_LIMIT = 50
 
-def now_moscow_naive():
-    return datetime.now(MOSCOW_TZ).replace(tzinfo=None)
+def now_moscow():
+    return datetime.now(MOSCOW_TZ)
 
 
 def now_moscow_iso():
@@ -35,11 +36,11 @@ def parse_dt(value):
     if not value:
         return None
     if isinstance(value, datetime):
-        return value.replace(tzinfo=None) if value.tzinfo else value
+        return value.astimezone(MOSCOW_TZ) if value.tzinfo else value.replace(tzinfo=MOSCOW_TZ)
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+            return parsed.astimezone(MOSCOW_TZ) if parsed.tzinfo else parsed.replace(tzinfo=MOSCOW_TZ)
         except Exception:
             return None
     return None
@@ -73,7 +74,7 @@ def _summary_from_attempt_doc(doc):
     order = doc.get("questionOrder") or []
     total_q = len(order)
     answered = len(answers)
-    if doc.get("status") == STATUS_EXPIRED:
+    if doc.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
         return {
             "id": str(doc["_id"]),
             "expiresAt": doc.get("expiresAt"),
@@ -103,7 +104,7 @@ def _load_pending_map(student_id, session_test_ids):
     result = {}
     cursor = coll.find({
         "studentId": sid,
-        "status": {"$in": ["in_progress", STATUS_EXPIRED]},
+        "status": {"$in": ["in_progress", STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]},
         "isPractice": False,
     })
     for doc in cursor:
@@ -137,7 +138,7 @@ def get_all_published_tests_light():
 
 def enrich_test_item(test_item, completed_ids, student_id, pending_map):
     is_external = bool(test_item.get("isExternal") or test_item.get("externalTest"))
-    now = now_moscow_naive()
+    now = now_moscow()
     start_dt = parse_dt(test_item.get("startDate"))
     end_dt = parse_dt(test_item.get("endDate"))
     is_completed = str(test_item.get("id")) in completed_ids
@@ -210,7 +211,7 @@ def _actionable_sort_key(item):
         rank = 2
     else:
         rank = 3
-    end_dt = parse_dt(item.get("endDate")) or datetime.max
+    end_dt = parse_dt(item.get("endDate")) or datetime.max.replace(tzinfo=MOSCOW_TZ)
     return (rank, end_dt)
 
 
@@ -237,28 +238,57 @@ def _sessions_for_tests(tests, sessions_by_test, with_stats=False):
 
 
 def build_available_tests_response(student_id, page=1, limit=STUDENT_DEFAULT_LIMIT):
-    page, limit = clamp_pagination(page, limit)
-    sessions, completed_ids, sessions_by_test, pending_map = _load_student_context(student_id)
-
+    """Лёгкий overview: только тесты, потенциально актуальные сейчас."""
     internal = get_all_published_tests_light()
+    now = now_moscow()
+    sid = normalize_student_id(student_id)
+    pending_docs = list(get_mongo_db().test_attempts.find({
+        "studentId": sid,
+        "status": {"$in": ["in_progress", STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]},
+        "isPractice": False,
+    }))
+    pending_test_ids = {str(item.get("testId")) for item in pending_docs}
+    candidate_tests = []
+    for test in internal:
+        start = parse_dt(test.get("startDate"))
+        end = parse_dt(test.get("endDate"))
+        if ((start is None or start <= now) and (end is None or end >= now)) or str(test.get("id")) in pending_test_ids:
+            candidate_tests.append(test)
+
+    candidate_ids = [str(item.get("id")) for item in candidate_tests]
+    sessions_cursor = get_mongo_db().test_sessions.find(
+        {"studentId": {"$in": [sid, str(sid)]}, "testId": {"$in": candidate_ids}},
+        {"_id": 1, "testId": 1, "score": 1, "completedAt": 1, "timeSpentMinutes": 1},
+    )
+    sessions = [{
+        "id": str(row["_id"]), "testId": str(row.get("testId")),
+        "score": row.get("score"), "completedAt": row.get("completedAt"),
+        "timeSpentMinutes": row.get("timeSpentMinutes"),
+    } for row in sessions_cursor]
+    completed_ids = {item["testId"] for item in sessions}
+    sessions_by_test = {item["testId"]: item for item in sessions}
+    pending_map = {}
+    for attempt in pending_docs:
+        test_id = str(attempt.get("testId"))
+        if test_id not in completed_ids:
+            pending_map[test_id] = _summary_from_attempt_doc(attempt)
+
     enriched = [
         enrich_test_item(t, completed_ids, student_id, pending_map)
-        for t in internal
+        for t in candidate_tests
     ]
     actionable = [t for t in enriched if is_actionable_test(t)]
     actionable.sort(key=_actionable_sort_key)
 
-    page_tests, pagination = paginate_items(actionable, page, limit)
-    for item in page_tests:
+    for item in actionable:
         item["directionName"] = item.get("direction")
-
-    page_sessions = _sessions_for_tests(page_tests, sessions_by_test, with_stats=False)
+    page_sessions = _sessions_for_tests(actionable, sessions_by_test, with_stats=False)
 
     return {
         "success": True,
-        "tests": page_tests,
+        "tests": actionable,
         "sessions": page_sessions,
-        "pagination": pagination,
+        "pagination": build_pagination(len(actionable), 1, max(1, len(actionable))),
         "serverTimeMoscow": now_moscow_iso(),
         "totalActionable": len(actionable),
     }

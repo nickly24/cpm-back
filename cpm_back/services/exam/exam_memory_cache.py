@@ -6,6 +6,8 @@ In-memory кэш exam-модуля (без Redis): один процесс gunic
 - Санитизированные вопросы по testId (без ключей ответов)
 """
 import copy
+import random
+import threading
 import time
 
 from bson import ObjectId
@@ -14,7 +16,7 @@ from cpm_back.db.mongo import get_mongo_db
 from cpm_back.services.exam.test_sanitize import sanitize_question
 
 TEST_DOC_TTL_SECONDS = 600
-PUBLISHED_CATALOG_TTL_SECONDS = 180
+PUBLISHED_CATALOG_TTL_SECONDS = 20
 DIRECTIONS_TTL_SECONDS = 300
 
 PUBLISHED_TEST_PROJECTION = {
@@ -32,6 +34,7 @@ _test_docs: dict[str, dict] = {}
 _sanitized_question_maps: dict[str, dict] = {}
 _published_catalog: dict | None = None
 _directions: dict | None = None
+_published_catalog_lock = threading.Lock()
 
 
 def _is_fresh(stored_at: float, ttl_seconds: int) -> bool:
@@ -67,13 +70,19 @@ def get_published_tests_light_cached() -> list[dict]:
     global _published_catalog
     if (
         _published_catalog is not None
-        and _is_fresh(_published_catalog["at"], PUBLISHED_CATALOG_TTL_SECONDS)
+        and time.time() < _published_catalog["expiresAt"]
     ):
         return copy.deepcopy(_published_catalog["items"])
-
-    items = _load_published_tests_from_mongo()
-    _published_catalog = {"items": items, "at": time.time()}
-    return copy.deepcopy(items)
+    with _published_catalog_lock:
+        if _published_catalog is not None and time.time() < _published_catalog["expiresAt"]:
+            return copy.deepcopy(_published_catalog["items"])
+        items = _load_published_tests_from_mongo()
+        _published_catalog = {
+            "items": items,
+            "at": time.time(),
+            "expiresAt": time.time() + random.uniform(15, 30),
+        }
+        return copy.deepcopy(items)
 
 
 def get_test_document_cached(test_id):

@@ -18,6 +18,12 @@ def sanitize_question(question):
 
 
 def questions_in_order(test, question_order):
+    version_id = test.get("_immutableVersionId")
+    if version_id:
+        from cpm_back.services.exam.test_versions import get_sanitized_test_version_map
+
+        qmap = get_sanitized_test_version_map(version_id)
+        return [dict(qmap[qid]) for qid in question_order if qid in qmap]
     test_id = test.get("_id") or test.get("id")
     if test_id is not None:
         from cpm_back.services.exam.exam_memory_cache import get_sanitized_questions_map_cached

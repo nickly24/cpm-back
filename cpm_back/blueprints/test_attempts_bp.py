@@ -11,6 +11,8 @@ from cpm_back.services.exam.test_attempts import (
     patch_answers_batch,
     submit_attempt,
     get_attempt_admin_detail,
+    sync_attempt_commits,
+    finalize_attempt_v2,
 )
 from cpm_back.services.exam.test_admin_monitoring import (
     delete_test_attempt_admin,
@@ -29,10 +31,13 @@ def attempt_start(current_user=None):
     if not test_id:
         return jsonify({'success': False, 'error': 'testId_required'}), 400
     is_practice = bool(data.get('isPractice') or data.get('practice'))
-    result = start_attempt(current_user.get('id'), test_id, is_practice=is_practice)
+    result = start_attempt(
+        current_user.get('id'), test_id, is_practice=is_practice,
+        client_schema_version=data.get('clientSchemaVersion'),
+    )
     if not result.get('success'):
         code = 409 if result.get('error') == 'test_already_completed' else 403
-        if result.get('error') in ('test_not_found', 'invalid_student_id', 'test_has_no_questions'):
+        if result.get('error') in ('test_not_found', 'invalid_student_id', 'test_has_no_questions', 'invalid_question_ids_in_test', 'duplicate_question_ids_in_test'):
             code = 400 if result.get('error') != 'test_not_found' else 404
         if result.get('error') == 'test_not_found':
             code = 404
@@ -98,6 +103,41 @@ def attempt_patch_answers_batch(attempt_id, current_user=None):
         return jsonify(result), 404
     status = 200 if result.get('success') else 207
     return jsonify(result), status
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/commits', methods=['POST'])
+@require_role('student')
+def attempt_sync_commits(attempt_id, current_user=None):
+    data = request.get_json() or {}
+    result = sync_attempt_commits(attempt_id, current_user.get('id'), data.get('commits'))
+    if not result.get('success'):
+        error = result.get('error')
+        if error in ('commits_required', 'commits_batch_too_large'):
+            return jsonify(result), 400
+        if error == 'attempt_not_found':
+            return jsonify(result), 404
+        if error in ('time_expired', 'attempt_not_active'):
+            return jsonify(result), 403
+        if result.get('ackedCommitIds') or result.get('conflicts') or result.get('errors'):
+            return jsonify(result)
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/finalize', methods=['POST'])
+@require_role('student')
+def attempt_finalize_v2(attempt_id, current_user=None):
+    result = finalize_attempt_v2(attempt_id, current_user.get('id'), request.get_json() or {})
+    if result.get('success'):
+        return jsonify(result)
+    error = result.get('error')
+    if error == 'attempt_not_found':
+        return jsonify(result), 404
+    if error in ('upload_window_closed', 'time_expired'):
+        return jsonify(result), 403
+    if error == 'test_already_completed':
+        return jsonify(result), 409
+    return jsonify(result), 400
 
 
 @test_attempts_bp.route('/test-attempt/<attempt_id>/submit', methods=['POST'])

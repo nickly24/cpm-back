@@ -4,6 +4,9 @@
 import logging
 import re
 import time
+import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
@@ -37,6 +40,8 @@ from .blueprints import (
 )
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
+_LOG_MOSCOW_TZ = ZoneInfo('Europe/Moscow')
+logging.Formatter.converter = lambda timestamp: datetime.fromtimestamp(timestamp, _LOG_MOSCOW_TZ).timetuple()
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -44,7 +49,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SENSITIVE_BODY_KEYS = {'password', 'token', 'bot_token', 'auth_token', 'authorization'}
+SENSITIVE_BODY_KEYS = {
+    'password', 'token', 'bot_token', 'auth_token', 'authorization',
+    'answers', 'commits', 'snapshot', 'questions',
+}
 
 
 def _safe_request_body():
@@ -126,8 +134,9 @@ def create_app():
     @app.before_request
     def log_request():
         request.start_time = time.time()
+        request.correlation_id = request.headers.get('X-Correlation-ID') or str(uuid.uuid4())
         client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
-        logger.info(f"[CPM-BACK REQUEST] {request.method} {request.path} | IP: {client_ip}")
+        logger.info(f"[CPM-BACK REQUEST] {request.correlation_id} | {request.method} {request.path} | IP: {client_ip}")
         if request.method in ('POST', 'PUT', 'PATCH') and request.is_json:
             try:
                 logger.info(f"[CPM-BACK BODY] {_safe_request_body()}")
@@ -137,7 +146,9 @@ def create_app():
     @app.after_request
     def log_response(response):
         duration = (time.time() - getattr(request, 'start_time', time.time())) * 1000
-        logger.info(f"[CPM-BACK RESPONSE] {request.method} {request.path} | Status: {response.status_code} | {duration:.2f}ms")
+        correlation_id = getattr(request, 'correlation_id', str(uuid.uuid4()))
+        response.headers['X-Correlation-ID'] = correlation_id
+        logger.info(f"[CPM-BACK RESPONSE] {correlation_id} | {request.method} {request.path} | Status: {response.status_code} | {duration:.2f}ms")
         return response
 
     @app.errorhandler(Exception)

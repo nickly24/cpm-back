@@ -1,9 +1,9 @@
-from datetime import datetime
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from cpm_back.db.mongo import get_mongo_db
 from cpm_back.services.exam import scoring
+from cpm_back.services.exam.test_time import now_moscow_iso
 
 _index_ensured = False
 
@@ -18,6 +18,12 @@ def _ensure_unique_index():
             [("studentId", 1), ("testId", 1)],
             unique=True,
             name="unique_student_test"
+        )
+        db.test_sessions.create_index(
+            [("attemptId", 1)],
+            unique=True,
+            partialFilterExpression={"attemptId": {"$exists": True}},
+            name="unique_attempt_session",
         )
         _index_ensured = True
     except Exception as e:
@@ -41,13 +47,18 @@ def insert_completed_test_session(
     score,
     time_spent_minutes=None,
     question_order=None,
+    attempt_id=None,
+    test_version_id=None,
+    final_snapshot_hash=None,
 ):
     """Финальная сдача (из attempt submit или admin)."""
     _ensure_unique_index()
     student_id = _normalize_student_id(student_id)
     db = get_mongo_db()
     coll = db.test_sessions
-    existing = coll.find_one({"studentId": {"$in": [student_id, str(student_id)]}, "testId": str(test_id)})
+    existing = coll.find_one({"attemptId": str(attempt_id)}) if attempt_id else None
+    if not existing:
+        existing = coll.find_one({"studentId": {"$in": [student_id, str(student_id)]}, "testId": str(test_id)})
     if existing:
         return {
             "success": False,
@@ -63,11 +74,17 @@ def insert_completed_test_session(
         "answers": answers,
         "score": score,
         "timeSpentMinutes": time_spent_minutes,
-        "completedAt": datetime.utcnow().isoformat() + "Z",
-        "createdAt": datetime.utcnow().isoformat() + "Z",
+        "completedAt": now_moscow_iso(),
+        "createdAt": now_moscow_iso(),
     }
     if question_order is not None:
         doc["questionOrder"] = question_order
+    if attempt_id is not None:
+        doc["attemptId"] = str(attempt_id)
+    if test_version_id is not None:
+        doc["testVersionId"] = str(test_version_id)
+    if final_snapshot_hash is not None:
+        doc["finalSnapshotHash"] = final_snapshot_hash
     try:
         result = coll.insert_one(doc)
         return {"success": True, "sessionId": str(result.inserted_id)}
