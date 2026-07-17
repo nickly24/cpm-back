@@ -58,16 +58,22 @@ def parse_file_to_session(
     file_bytes: bytes,
     filename: Optional[str],
     direction_id: Any,
-    theme_id: Any,
+    theme_id: Any = None,
     *,
+    new_theme_name: Any = None,
+    create_new_theme: bool = False,
     created_by: Optional[int] = None,
     created_by_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     direction_id_int = _parse_direction_id(direction_id)
-    theme_id_int = _parse_direction_id(theme_id)
+    theme_id_int = _parse_direction_id(theme_id) if theme_id not in (None, "") else None
+    theme_name = str(new_theme_name or "").strip() if new_theme_name is not None else ""
     if direction_id_int is None:
         return {"status": False, "error": "Выберите направление"}
-    if theme_id_int is None:
+    if create_new_theme:
+        if not theme_name:
+            return {"status": False, "error": "Укажите название нового раздела"}
+    elif theme_id_int is None:
         return {"status": False, "error": "Выберите раздел"}
 
     parsed = parse_cards_excel(file_bytes)
@@ -86,6 +92,8 @@ def parse_file_to_session(
             parsed["rows"],
             direction_id=direction_id_int,
             theme_id=theme_id_int,
+            new_theme_name=theme_name if create_new_theme else None,
+            create_new_theme=create_new_theme,
         )
         preview["source_sheet"] = parsed.get("sheet_name")
         preview["source_rows"] = parsed["rows"]

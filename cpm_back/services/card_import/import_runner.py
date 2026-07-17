@@ -18,8 +18,60 @@ from cpm_back.services.user_import.import_jobs import (
 ProgressCallback = Optional[Callable[[Dict[str, Any]], None]]
 
 
-def _empty_entities() -> Dict[str, List[Any]]:
-    return {"card_ids_created": []}
+def _empty_entities() -> Dict[str, Any]:
+    return {"card_ids_created": [], "theme_id_created": None}
+
+
+def _resolve_or_create_theme(cursor, preview: Dict[str, Any]) -> Dict[str, Any]:
+    """Возвращает theme_id / theme_name и флаг, создан ли раздел этим job."""
+    direction_id = int(preview["direction_id"])
+    if preview.get("create_new_theme"):
+        theme_name = str(preview.get("new_theme_name") or "").strip()
+        if not theme_name:
+            raise RuntimeError("Не указано название нового раздела")
+
+        cursor.execute(
+            """
+            SELECT id, name FROM card_themes
+            WHERE direction_id = %s AND name = %s
+            """,
+            (direction_id, theme_name),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            return {
+                "theme_id": int(existing["id"]),
+                "theme_name": existing.get("name") or theme_name,
+                "theme_created": False,
+            }
+
+        cursor.execute(
+            "INSERT INTO card_themes (name, direction_id) VALUES (%s, %s)",
+            (theme_name, direction_id),
+        )
+        return {
+            "theme_id": int(cursor.lastrowid),
+            "theme_name": theme_name,
+            "theme_created": True,
+        }
+
+    theme_id = preview.get("theme_id")
+    if theme_id is None:
+        raise RuntimeError("Не выбран раздел для импорта")
+    return {
+        "theme_id": int(theme_id),
+        "theme_name": preview.get("theme_name"),
+        "theme_created": False,
+    }
+
+
+def _rollback_theme(cursor, theme_id: Optional[int]) -> None:
+    if not theme_id:
+        return
+    cursor.execute("SELECT COUNT(*) AS cnt FROM cards WHERE theme_id = %s", (theme_id,))
+    count = int((cursor.fetchone() or {}).get("cnt") or 0)
+    if count == 0:
+        cursor.execute("DELETE FROM card_themes WHERE id = %s", (theme_id,))
 
 
 def _load_preview_for_job(cursor, job: Dict[str, Any]) -> Dict[str, Any]:
@@ -100,11 +152,15 @@ def run_cards_import(job_id: int, progress_callback: ProgressCallback = None) ->
             )
             return
 
-        theme_id = int(preview["theme_id"])
-        theme_name = preview.get("theme_name")
+        resolved = _resolve_or_create_theme(cursor, preview)
+        theme_id = int(resolved["theme_id"])
+        theme_name = resolved.get("theme_name") or preview.get("theme_name")
+        if resolved.get("theme_created"):
+            entities["theme_id_created"] = theme_id
+            conn.commit()
+
         direction_name = preview.get("direction_name")
         cards = preview.get("cards") or []
-        importable = [card for card in cards if card.get("action") in ("create", "warning")]
         total_rows = len(cards)
 
         cursor.execute(
@@ -177,6 +233,10 @@ def run_cards_import(job_id: int, progress_callback: ProgressCallback = None) ->
             emit_progress(f"Импорт карточек: {processed}/{total_rows}")
 
         save_job_results(job_id, result_rows)
+        summary = dict(preview.get("summary") or {})
+        summary["theme_id"] = theme_id
+        summary["theme_name"] = theme_name
+        summary["theme_created"] = bool(entities.get("theme_id_created"))
         _update_job(
             job_id,
             status="completed",
@@ -185,9 +245,12 @@ def run_cards_import(job_id: int, progress_callback: ProgressCallback = None) ->
             successful=successful,
             skipped=skipped,
             failed=0,
-            message=f"Создано карточек: {successful}, пропущено: {skipped}",
+            message=(
+                f"Создано карточек: {successful}, пропущено: {skipped}"
+                + (f", раздел: {theme_name}" if theme_name else "")
+            ),
             entities_created=entities,
-            summary=preview.get("summary"),
+            summary=summary,
         )
     except Exception as exc:
         if conn:
@@ -195,6 +258,7 @@ def run_cards_import(job_id: int, progress_callback: ProgressCallback = None) ->
                 cursor = conn.cursor(dictionary=True)
                 _update_job(job_id, status="rolling_back", message=f"Откат: {exc}")
                 _rollback_cards(cursor, entities.get("card_ids_created") or [])
+                _rollback_theme(cursor, entities.get("theme_id_created"))
                 conn.commit()
             except Exception as rollback_exc:
                 conn.rollback()

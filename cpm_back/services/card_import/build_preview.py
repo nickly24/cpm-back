@@ -18,10 +18,13 @@ def _card_key(question: str, answer: str) -> Tuple[str, str]:
     return normalize_card_text(question), normalize_card_text(answer)
 
 
-def _validate_theme(cursor, direction_id: int, theme_id: int) -> Optional[str]:
+def _load_direction(cursor, direction_id: int) -> Optional[Dict[str, Any]]:
     cursor.execute("SELECT id, name FROM directions WHERE id = %s", (direction_id,))
-    direction = cursor.fetchone()
-    if not direction:
+    return cursor.fetchone()
+
+
+def _validate_existing_theme(cursor, direction_id: int, theme_id: int) -> Optional[str]:
+    if not _load_direction(cursor, direction_id):
         return "Направление не найдено"
 
     cursor.execute(
@@ -38,6 +41,18 @@ def _validate_theme(cursor, direction_id: int, theme_id: int) -> Optional[str]:
     if int(theme["direction_id"]) != int(direction_id):
         return "Раздел не относится к выбранному направлению"
     return None
+
+
+def _find_theme_by_name(cursor, direction_id: int, theme_name: str) -> Optional[Dict[str, Any]]:
+    cursor.execute(
+        """
+        SELECT id, name, direction_id
+        FROM card_themes
+        WHERE direction_id = %s AND name = %s
+        """,
+        (direction_id, theme_name),
+    )
+    return cursor.fetchone()
 
 
 def _load_existing_card_keys(cursor, theme_id: int) -> Set[Tuple[str, str]]:
@@ -112,23 +127,91 @@ def _warning_messages(warnings: List[str]) -> Optional[str]:
     return "; ".join(messages) if messages else None
 
 
+def _resolve_theme_target(
+    cursor,
+    *,
+    direction_id: int,
+    theme_id: Optional[int],
+    new_theme_name: Optional[str],
+    create_new_theme: bool,
+) -> Dict[str, Any]:
+    direction = _load_direction(cursor, direction_id)
+    if not direction:
+        raise ValueError("Направление не найдено")
+
+    if create_new_theme:
+        theme_name = normalize_card_text(new_theme_name)
+        if not theme_name:
+            raise ValueError("Укажите название нового раздела")
+
+        existing = _find_theme_by_name(cursor, direction_id, theme_name)
+        if existing:
+            return {
+                "direction": direction,
+                "theme_id": int(existing["id"]),
+                "theme_name": existing.get("name") or theme_name,
+                "create_new_theme": True,
+                "new_theme_name": theme_name,
+                "theme_name_collision": True,
+                "theme_message": (
+                    f"Раздел «{theme_name}» уже есть — карточки будут добавлены в него"
+                ),
+            }
+
+        return {
+            "direction": direction,
+            "theme_id": None,
+            "theme_name": theme_name,
+            "create_new_theme": True,
+            "new_theme_name": theme_name,
+            "theme_name_collision": False,
+            "theme_message": f"Будет создан раздел «{theme_name}»",
+        }
+
+    if theme_id is None:
+        raise ValueError("Выберите раздел")
+
+    theme_error = _validate_existing_theme(cursor, direction_id, theme_id)
+    if theme_error:
+        raise ValueError(theme_error)
+
+    cursor.execute("SELECT id, name FROM card_themes WHERE id = %s", (theme_id,))
+    theme = cursor.fetchone()
+    return {
+        "direction": direction,
+        "theme_id": int(theme_id),
+        "theme_name": theme.get("name") if theme else "",
+        "create_new_theme": False,
+        "new_theme_name": None,
+        "theme_name_collision": False,
+        "theme_message": None,
+    }
+
+
 def build_preview_from_rows(
     cursor,
     raw_rows: List[Dict[str, Any]],
     *,
     direction_id: int,
-    theme_id: int,
+    theme_id: Optional[int] = None,
+    new_theme_name: Optional[str] = None,
+    create_new_theme: bool = False,
     preserved_cards: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    theme_error = _validate_theme(cursor, direction_id, theme_id)
-    if theme_error:
-        raise ValueError(theme_error)
+    target = _resolve_theme_target(
+        cursor,
+        direction_id=direction_id,
+        theme_id=theme_id,
+        new_theme_name=new_theme_name,
+        create_new_theme=create_new_theme,
+    )
 
-    cursor.execute("SELECT id, name FROM directions WHERE id = %s", (direction_id,))
-    direction = cursor.fetchone()
-    cursor.execute("SELECT id, name FROM card_themes WHERE id = %s", (theme_id,))
-    theme = cursor.fetchone()
-    existing_keys = _load_existing_card_keys(cursor, theme_id)
+    resolved_theme_id = target["theme_id"]
+    existing_keys: Set[Tuple[str, str]] = (
+        _load_existing_card_keys(cursor, resolved_theme_id)
+        if resolved_theme_id is not None
+        else set()
+    )
 
     preserved_by_row = {
         int(item.get("row")): item
@@ -186,9 +269,13 @@ def build_preview_from_rows(
     summary = _build_summary(cards)
     return {
         "direction_id": int(direction_id),
-        "direction_name": direction.get("name"),
-        "theme_id": int(theme_id),
-        "theme_name": theme.get("name"),
+        "direction_name": target["direction"].get("name"),
+        "theme_id": resolved_theme_id,
+        "theme_name": target["theme_name"],
+        "create_new_theme": bool(target["create_new_theme"]),
+        "new_theme_name": target["new_theme_name"],
+        "theme_name_collision": bool(target["theme_name_collision"]),
+        "theme_message": target["theme_message"],
         "cards": cards,
         "summary": summary,
         "source_rows": raw_rows,
@@ -206,11 +293,20 @@ def rebuild_preview_from_cards(cursor, preview: Dict[str, Any]) -> Dict[str, Any
             }
             for card in preview.get("cards") or []
         ]
+
+    create_new_theme = bool(preview.get("create_new_theme"))
+    theme_id_raw = preview.get("theme_id")
+    theme_id = None
+    if theme_id_raw is not None and not create_new_theme:
+        theme_id = int(theme_id_raw)
+
     return build_preview_from_rows(
         cursor,
         raw_rows,
         direction_id=int(preview["direction_id"]),
-        theme_id=int(preview["theme_id"]),
+        theme_id=theme_id,
+        new_theme_name=preview.get("new_theme_name") if create_new_theme else None,
+        create_new_theme=create_new_theme,
         preserved_cards=preview.get("cards") or [],
     )
 
@@ -224,4 +320,9 @@ def validate_preview_for_commit(preview: Dict[str, Any]) -> Optional[str]:
         return "Нет строк для загрузки"
     if int(summary.get("cards_to_import") or 0) <= 0:
         return "Нет карточек для импорта (все строки исключены)"
+    if preview.get("create_new_theme"):
+        if not normalize_card_text(preview.get("new_theme_name")):
+            return "Укажите название нового раздела"
+    elif preview.get("theme_id") is None:
+        return "Выберите раздел"
     return None

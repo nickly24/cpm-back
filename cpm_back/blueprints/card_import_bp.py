@@ -30,11 +30,17 @@ def parse_upload(current_user=None):
     upload = request.files.get("file")
     direction_id = request.form.get("direction_id")
     theme_id = request.form.get("theme_id")
+    new_theme_name = request.form.get("new_theme_name")
+    create_new_raw = (request.form.get("create_new_theme") or "").strip().lower()
+    create_new_theme = create_new_raw in ("1", "true", "yes", "on")
     if not upload:
         return jsonify({"status": False, "error": "Файл не передан"}), 400
     if not direction_id:
         return jsonify({"status": False, "error": "Выберите направление"}), 400
-    if not theme_id:
+    if create_new_theme:
+        if not (new_theme_name or "").strip():
+            return jsonify({"status": False, "error": "Укажите название нового раздела"}), 400
+    elif not theme_id:
         return jsonify({"status": False, "error": "Выберите раздел"}), 400
 
     answer = parse_file_to_session(
@@ -42,6 +48,8 @@ def parse_upload(current_user=None):
         upload.filename,
         direction_id,
         theme_id,
+        new_theme_name=new_theme_name,
+        create_new_theme=create_new_theme,
         created_by=current_user.get("id") if current_user else None,
         created_by_name=current_user.get("full_name") if current_user else None,
     )
