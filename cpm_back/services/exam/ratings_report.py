@@ -3,24 +3,63 @@
 """
 from __future__ import annotations
 
+import hashlib
+
 from cpm_back.db.mongo import get_mongo_db
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 from cpm_back.services.serv.school_schema import is_schools_schema_ready
 
 
-def _column(kind: str, key: str, label: str, subtitle: str | None = None) -> dict:
-    return {
+def _column(
+    kind: str,
+    key: str,
+    label: str,
+    subtitle: str | None = None,
+    group_key: str | None = None,
+    group_label: str | None = None,
+) -> dict:
+    result = {
         "key": key,
         "kind": kind,
         "label": label,
         "subtitle": subtitle,
     }
+    if group_key:
+        result["group_key"] = group_key
+    if group_label:
+        result["group_label"] = group_label
+    return result
 
 
 def _parse_sort_date(value) -> str:
     if not value:
         return "9999-99-99"
     return str(value).strip()[:10]
+
+
+def _direction_column_key(direction: str) -> str:
+    normalized = direction.strip().casefold()
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+    return f"td_{digest}"
+
+
+def _test_direction_scores(tests: dict) -> dict[str, float]:
+    stored = tests.get("directions") or {}
+    if stored:
+        return {
+            str(direction): float(score or 0)
+            for direction, score in stored.items()
+        }
+
+    grouped: dict[str, list[float]] = {}
+    for item in tests.get("details") or []:
+        direction = (item.get("direction") or "Неизвестное направление").strip()
+        grouped.setdefault(direction, []).append(float(item.get("score") or 0))
+    return {
+        direction: sum(scores) / len(scores)
+        for direction, scores in grouped.items()
+        if scores
+    }
 
 
 def get_ratings_report():
@@ -95,6 +134,7 @@ def get_ratings_report():
         period = None
         homework_meta: dict[str, dict] = {}
         exam_meta: dict[str, dict] = {}
+        direction_meta: dict[str, dict] = {}
         test_meta: dict[str, dict] = {}
 
         for doc in details_by_rating.values():
@@ -132,6 +172,16 @@ def get_ratings_report():
                     "label": title,
                     "subtitle": direction or None,
                     "sort": f"{direction.casefold()}|{title.casefold()}",
+                    "direction_key": _direction_column_key(
+                        direction or "Неизвестное направление"
+                    ),
+                }
+
+            for direction in _test_direction_scores(doc.get("tests") or {}):
+                key = _direction_column_key(direction)
+                direction_meta[key] = {
+                    "label": direction,
+                    "sort": direction.casefold(),
                 }
 
         columns: list[dict] = [
@@ -147,8 +197,40 @@ def get_ratings_report():
         for key, meta in sorted(exam_meta.items(), key=lambda x: (x[1]["sort"], x[1]["label"])):
             columns.append(_column("exam", key, meta["label"], meta.get("subtitle")))
 
-        for key, meta in sorted(test_meta.items(), key=lambda x: (x[1]["sort"], x[1]["label"])):
-            columns.append(_column("test", key, meta["label"], meta.get("subtitle")))
+        for direction_key, direction in sorted(
+            direction_meta.items(),
+            key=lambda x: (x[1]["sort"], x[1]["label"]),
+        ):
+            group_key = f"group_{direction_key}"
+            columns.append(
+                _column(
+                    "test_direction",
+                    direction_key,
+                    "Среднее",
+                    direction["label"],
+                    group_key=group_key,
+                    group_label=direction["label"],
+                )
+            )
+            direction_tests = (
+                (key, meta)
+                for key, meta in test_meta.items()
+                if meta["direction_key"] == direction_key
+            )
+            for key, meta in sorted(
+                direction_tests,
+                key=lambda x: (x[1]["sort"], x[1]["label"]),
+            ):
+                columns.append(
+                    _column(
+                        "test",
+                        key,
+                        meta["label"],
+                        meta.get("subtitle"),
+                        group_key=group_key,
+                        group_label=direction["label"],
+                    )
+                )
 
         students = []
         values = []
@@ -213,6 +295,13 @@ def get_ratings_report():
                     f"ts_{test_id}",
                     float(item.get("score") or 0),
                     item.get("source"),
+                )
+
+            for direction, score in _test_direction_scores(doc.get("tests") or {}).items():
+                append_value(
+                    _direction_column_key(direction),
+                    score,
+                    "Среднее по направлению",
                 )
 
         return {

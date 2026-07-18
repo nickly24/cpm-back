@@ -21,6 +21,7 @@
 | 02 | [02-domashnie-zadaniya.md](./02-domashnie-zadaniya.md) | Готово |
 | 03 | [03-testy.md](./03-testy.md) | Готово (архитектура; часть про localStorage устарела) |
 | 04 | [04-testy-api-dlya-fronta.md](./04-testy-api-dlya-fronta.md) | **API для фронта** (attempt, все эндпоинты) |
+| 06 | [06-test-scoring-rating-audit-2026-07-18.md](./06-test-scoring-rating-audit-2026-07-18.md) | Аудит scoring, перерасчёта и рейтинга после инцидента 18.07.2026 |
 | 05+ | Посещаемость, экзамены, рейтинги, карточки Platon, расписание, отгулы… | Планируется |
 
 ## Планы доработок (не реализовано)

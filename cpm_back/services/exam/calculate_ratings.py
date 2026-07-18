@@ -2,15 +2,28 @@
 Расчёт рейтинга студентов: ДЗ, экзамены, тесты (MySQL + MongoDB).
 Использует переданные mysql_conn и mongo_db (пул/клиент приложения).
 """
+from __future__ import annotations
+
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+
+
+def _as_moscow(value: datetime) -> datetime:
+    """Treat legacy naive values as Moscow time and normalize aware values."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=MOSCOW_TZ)
+    return value.astimezone(MOSCOW_TZ)
 
 
 def _coerce_rating_date(value) -> datetime:
     if isinstance(value, datetime):
-        return value.replace(tzinfo=None) if value.tzinfo else value
+        return _as_moscow(value)
     if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
-    return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d")
+        return datetime(value.year, value.month, value.day, tzinfo=MOSCOW_TZ)
+    return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").replace(tzinfo=MOSCOW_TZ)
 
 
 def _parse_test_start_date(raw) -> datetime | None:
@@ -19,8 +32,8 @@ def _parse_test_start_date(raw) -> datetime | None:
     try:
         text = str(raw).strip()
         if "T" in text:
-            return datetime.fromisoformat(text.replace("Z", "+00:00").replace("+00:00", ""))
-        return datetime.strptime(text[:10], "%Y-%m-%d")
+            return _as_moscow(datetime.fromisoformat(text.replace("Z", "+00:00")))
+        return datetime.strptime(text[:10], "%Y-%m-%d").replace(tzinfo=MOSCOW_TZ)
     except (TypeError, ValueError):
         return None
 
@@ -29,7 +42,8 @@ def _test_start_in_period(test, date_from_dt: datetime, date_to_dt: datetime) ->
     start = _parse_test_start_date(test.get("startDate"))
     if not start:
         return False
-    return date_from_dt <= start <= date_to_dt
+    # Rating inputs are calendar dates, so the end date must include the whole day.
+    return date_from_dt.date() <= start.date() <= date_to_dt.date()
 
 
 def _is_mongo_test_eligible_for_rating(test, date_from_dt: datetime, date_to_dt: datetime) -> bool:
@@ -47,6 +61,13 @@ def _normalize_direction_label(name: str | None) -> str:
 
 def _direction_group_key(name: str | None) -> str:
     return _normalize_direction_label(name).casefold()
+
+
+def _average_direction_ratings(direction_averages: dict[str, float]) -> float:
+    """Average only directions that have tests and therefore have a bucket."""
+    if not direction_averages:
+        return 0.0
+    return sum(direction_averages.values()) / len(direction_averages)
 
 
 def calculate_homework_rating(mysql_conn, student_id, date_from, date_to):
@@ -145,9 +166,10 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
 
     # direction_key -> {label, tests[], scores[]}
     directions_dict: dict[str, dict] = {}
-    flat_scores: list[float] = []
+    total_tests_count = 0
 
     def _append_test(direction_name, test_id, test_title, score, source):
+        nonlocal total_tests_count
         key = _direction_group_key(direction_name)
         label = _normalize_direction_label(direction_name)
         bucket = directions_dict.setdefault(
@@ -165,7 +187,7 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
             },
         )
         bucket["scores"].append(score)
-        flat_scores.append(score)
+        total_tests_count += 1
 
     # MongoDB: все опубликованные/активные тесты со startDate в периоде.
     # Нет test_session → 0 (пропуск теста учитывается в среднем).
@@ -212,8 +234,9 @@ def calculate_tests_rating(mysql_conn, mongo_db, student_id, date_from, date_to)
                 },
             )
 
-    overall_average = sum(flat_scores) / len(flat_scores) if flat_scores else 0.0
-    total_tests_count = len(flat_scores)
+    # Each direction has equal weight. Directions without tests in the period
+    # never create a bucket and therefore do not participate in the average.
+    overall_average = _average_direction_ratings(direction_averages)
     return {
         'average': overall_average,
         'total_count': total_tests_count,
