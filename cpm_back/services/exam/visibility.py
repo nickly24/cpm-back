@@ -7,7 +7,7 @@ from cpm_back.db.mongo import get_mongo_db
 def get_test_visible(test_id):
     db = get_mongo_db()
     try:
-        test = db.tests.find_one({"_id": ObjectId(test_id)}, {"visible": 1})
+        test = db.tests.find_one({"_id": ObjectId(str(test_id))}, {"visible": 1})
     except Exception:
         return False
     if not test:

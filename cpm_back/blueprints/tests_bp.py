@@ -32,6 +32,8 @@ from cpm_back.services.exam.get_external_tests import (
     get_all_external_tests_by_direction_for_admin,
 )
 from cpm_back.services.exam.session_review import build_session_review
+from cpm_back.services.exam.student_test_access import resolve_student_test_access
+from cpm_back.services.exam.visibility import can_show_correct_answers
 from cpm_back.services.exam.test_attempts import get_pending_attempt_summary
 from cpm_back.services.exam.student_tests_catalog import (
     STUDENT_DEFAULT_LIMIT,
@@ -111,9 +113,16 @@ def tests_by_direction(direction, current_user=None):
         is_active = (not is_external) and start_dt is not None and end_dt is not None and (start_dt <= now <= end_dt)
         is_missed = (not is_external) and end_dt is not None and now > end_dt and not is_completed
         can_start = (not is_external) and is_active and (not is_completed)
-        can_practice = (not is_external) and is_completed
-        # Для студентов просмотр результатов зависит от visible; для админа/проктора/супервайзера всегда можно.
-        can_view_results = is_completed and ((role != "student") or bool(test_item.get("visible")))
+        access = resolve_student_test_access(
+            test_item,
+            has_completed_session=is_completed,
+            is_external=is_external,
+        )
+        can_practice = access.can_practice
+        # Для сотрудников прежний просмотр результатов остаётся без ограничения visible.
+        can_view_results = is_completed and (
+            role != "student" or access.can_view_results
+        )
         status = "external"
         if not is_external:
             if is_completed:
@@ -601,6 +610,8 @@ def session_review(session_id, current_user=None):
     role = current_user.get('role')
     if role != 'admin' and str(session.get('studentId')) != str(current_user.get('id')):
         return jsonify({'success': False, 'error': 'forbidden'}), 403
+    if role == 'student' and not can_show_correct_answers(role, session.get('testId')):
+        return jsonify({'success': False, 'error': 'results_hidden'}), 403
     result = build_session_review(session_id, role)
     if not result.get('success'):
         return jsonify(result), 404

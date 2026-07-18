@@ -11,6 +11,7 @@ from cpm_back.services.exam.test_attempts import (
     patch_answers_batch,
     submit_attempt,
     get_attempt_admin_detail,
+    check_practice_answer,
     sync_attempt_commits,
     finalize_attempt_v2,
 )
@@ -86,6 +87,28 @@ def attempt_patch_answer(attempt_id, current_user=None):
             return jsonify(result), 400
         return jsonify(result), 404
     return jsonify(result)
+
+
+@test_attempts_bp.route('/test-attempt/<attempt_id>/practice-answer', methods=['POST'])
+@require_role('student')
+def attempt_check_practice_answer(attempt_id, current_user=None):
+    result = check_practice_answer(
+        attempt_id,
+        current_user.get('id'),
+        request.get_json() or {},
+    )
+    if result.get('success'):
+        return jsonify(result)
+    error = result.get('error')
+    code = 404 if error in ('attempt_not_found', 'test_not_found') else 403
+    if error in (
+        'invalid_question_id', 'invalid_answer_type', 'invalid_answer_option',
+        'invalid_text_answer', 'practice_attempt_required',
+    ):
+        code = 400
+    if error in ('answer_locked', 'attempt_not_active'):
+        code = 409
+    return jsonify(result), code
 
 
 @test_attempts_bp.route('/test-attempt/<attempt_id>/answers', methods=['POST'])

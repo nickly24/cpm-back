@@ -13,7 +13,8 @@ from cpm_back.services.exam.create_test_session import (
     get_test_session_by_student_and_test,
     insert_completed_test_session,
 )
-from cpm_back.services.exam.scoring import score_attempt_answers
+from cpm_back.services.exam.scoring import score_answer_from_raw, score_attempt_answers
+from cpm_back.services.exam.student_test_access import resolve_student_test_access
 from cpm_back.services.exam.test_sanitize import enrich_questions_with_locks, questions_in_order
 from cpm_back.services.exam.test_time import (
     MOSCOW_TZ,
@@ -119,6 +120,10 @@ def _answers_equal(existing, new_answer):
 
 def _attempt_accepts_answers(doc):
     """Можно ли дописать ответы (активная сдача или догон после expire)."""
+    if doc.get("isPractice"):
+        if doc.get("status") == STATUS_IN_PROGRESS:
+            return doc, None
+        return doc, "attempt_not_active"
     doc = _mark_expired_if_needed(doc)
     status = doc.get("status")
     if status == STATUS_IN_PROGRESS:
@@ -142,6 +147,39 @@ def _definition_for_attempt(doc):
         version["_immutableVersionId"] = str(doc.get("testVersionId"))
         return version
     return _get_test_document(doc.get("testId"))
+
+
+def _practice_access_error(doc, student_id):
+    current_test = get_test_by_id(doc.get("testId"))
+    if not current_test:
+        return "test_not_found"
+    completed_session = get_test_session_by_student_and_test(
+        student_id, doc.get("testId")
+    )
+    access = resolve_student_test_access(
+        current_test,
+        has_completed_session=bool(completed_session),
+        has_open_official_attempt=_has_open_official_attempt(
+            student_id, doc.get("testId")
+        ),
+    )
+    return None if access.can_practice else access.practice_error
+
+
+def _has_open_official_attempt(student_id, test_id):
+    return bool(_collection().find_one({
+        "studentId": normalize_student_id(student_id),
+        "testId": str(test_id),
+        "isPractice": False,
+        "status": {
+            "$in": [
+                STATUS_IN_PROGRESS,
+                STATUS_EXPIRED,
+                STATUS_EXPIRED_PENDING_UPLOAD,
+                STATUS_FINALIZING,
+            ],
+        },
+    }, {"_id": 1}))
 
 
 def _validate_answer(answer, question):
@@ -171,6 +209,36 @@ def _validate_answer(answer, question):
     else:
         return None, "invalid_answer_type"
     return base, None
+
+
+def _practice_correct_payload(question):
+    q_type = question.get("type")
+    if q_type in ("single", "multiple"):
+        return {
+            "correctOptionIds": [
+                str(option.get("id"))
+                for option in (question.get("answers") or [])
+                if option.get("isCorrect")
+            ],
+        }
+    if q_type == "text":
+        return {
+            "correctAnswers": [
+                str(value) for value in (question.get("correctAnswers") or [])
+            ],
+        }
+    return {}
+
+
+def _practice_feedback(answer, question):
+    scored = score_answer_from_raw(answer, question)
+    return {
+        "questionId": question.get("questionId"),
+        "answer": scored,
+        "isCorrect": bool(scored.get("isCorrect")),
+        "points": int(scored.get("points") or 0),
+        "correct": _practice_correct_payload(question),
+    }
 
 
 def sync_attempt_commits(attempt_id, student_id, commits):
@@ -439,8 +507,9 @@ def _serialize_attempt(doc, test=None, include_questions=False):
     schema_version = int(doc.get("schemaVersion") or 1)
     public_started_at = doc.get("startedAtMoscow") if schema_version == 2 else doc.get("startedAt")
     public_expires_at = doc.get("answerDeadlineMoscow") if schema_version == 2 else expires_at
-    time_expired = doc.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD)
-    if not time_expired and expires_at:
+    is_practice = bool(doc.get("isPractice"))
+    time_expired = (not is_practice) and doc.get("status") in (STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD)
+    if not is_practice and not time_expired and expires_at:
         if remaining_seconds(expires_at) <= 0 and doc.get("status") == STATUS_IN_PROGRESS:
             time_expired = True
     answers = doc.get("answers") or []
@@ -450,10 +519,11 @@ def _serialize_attempt(doc, test=None, include_questions=False):
         "studentId": doc.get("studentId"),
         "testId": doc.get("testId"),
         "status": STATUS_EXPIRED if time_expired and doc.get("status") == STATUS_IN_PROGRESS else doc.get("status"),
-        "isPractice": bool(doc.get("isPractice")),
+        "isPractice": is_practice,
+        "hasTimeLimit": not is_practice,
         "startedAt": public_started_at,
         "expiresAt": public_expires_at,
-        "remainingSeconds": 0 if time_expired else remaining_seconds(expires_at),
+        "remainingSeconds": 0 if is_practice or time_expired else remaining_seconds(expires_at),
         "timeExpired": time_expired,
         "questionOrder": doc.get("questionOrder") or [],
         "answers": answers,
@@ -481,11 +551,20 @@ def _serialize_attempt(doc, test=None, include_questions=False):
     if include_questions and test:
         sanitized = questions_in_order(test, payload["questionOrder"])
         payload["questions"] = enrich_questions_with_locks(sanitized, answered_ids)
+        if is_practice:
+            by_qid = {q.get("questionId"): q for q in (test.get("questions") or [])}
+            payload["practiceFeedback"] = [
+                _practice_feedback(answer, by_qid.get(answer.get("questionId")))
+                for answer in answers
+                if by_qid.get(answer.get("questionId"))
+            ]
     return payload
 
 
 def _mark_expired_if_needed(doc):
     if not doc or doc.get("status") != STATUS_IN_PROGRESS:
+        return doc
+    if doc.get("isPractice"):
         return doc
     if remaining_seconds(doc.get("expiresAt")) <= 0:
         _collection().update_one(
@@ -507,6 +586,7 @@ def _insert_attempt_doc(coll, doc, test):
             "studentId": doc["studentId"],
             "testId": doc["testId"],
             "status": STATUS_IN_PROGRESS,
+            "isPractice": bool(doc.get("isPractice")),
         })
         if existing:
             return {
@@ -541,6 +621,8 @@ def _resume_pending_attempt(coll, student_id, test_id, test, is_practice):
                 "attempt": _serialize_attempt(existing, _definition_for_attempt(existing) or test, include_questions=True),
             }
 
+    if is_practice:
+        return None
     expired = coll.find_one({**filters, "status": {"$in": [STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD]}})
     if expired:
         return {
@@ -564,8 +646,17 @@ def start_attempt(student_id, test_id, is_practice=False, client_schema_version=
     schema_version = 1 if is_practice else (2 if int(client_schema_version or 1) >= 2 else 1)
 
     if is_practice:
-        if not get_test_session_by_student_and_test(student_id, test_id):
-            return {"success": False, "error": "test_not_completed"}
+        current_test = get_test_by_id(test_id) or test
+        completed_session = get_test_session_by_student_and_test(student_id, test_id)
+        access = resolve_student_test_access(
+            current_test,
+            has_completed_session=bool(completed_session),
+            has_open_official_attempt=_has_open_official_attempt(
+                student_id, test_id
+            ),
+        )
+        if not access.can_practice:
+            return {"success": False, "error": access.practice_error}
 
         resumed = _resume_pending_attempt(coll, student_id, test_id, test, True)
         if resumed:
@@ -576,8 +667,7 @@ def start_attempt(student_id, test_id, is_practice=False, client_schema_version=
             return {"success": False, "error": order_err}
 
         started_at = now_utc_iso()
-        time_limit = int(test.get("timeLimitMinutes") or 0)
-        expires_at = compute_expires_at(started_at, time_limit)
+        version = ensure_test_version(test)
 
         doc = {
             "studentId": student_id,
@@ -585,11 +675,15 @@ def start_attempt(student_id, test_id, is_practice=False, client_schema_version=
             "status": STATUS_IN_PROGRESS,
             "isPractice": True,
             "startedAt": started_at,
-            "expiresAt": expires_at,
+            "expiresAt": None,
+            "hasTimeLimit": False,
             "questionOrder": order,
             "answers": [],
             "createdAt": started_at,
+            "schemaVersion": 1,
         }
+        if version:
+            doc["testVersionId"] = str(version["_id"])
         return _insert_attempt_doc(coll, doc, test)
 
     if get_test_session_by_student_and_test(student_id, test_id):
@@ -671,6 +765,10 @@ def get_attempt_for_student(attempt_id, student_id):
         return {"success": False, "error": "attempt_not_found"}
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
+    if doc.get("isPractice"):
+        access_error = _practice_access_error(doc, student_id)
+        if access_error:
+            return {"success": False, "error": access_error}
     doc = _mark_expired_if_needed(doc)
     test = _definition_for_attempt(doc)
     return {"success": True, "attempt": _serialize_attempt(doc, test, include_questions=True)}
@@ -789,6 +887,10 @@ def patch_answer(attempt_id, student_id, answer_data, include_questions=False):
 
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
+    if doc.get("isPractice"):
+        access_error = _practice_access_error(doc, student_id)
+        if access_error:
+            return {"success": False, "error": access_error}
 
     doc, gate_err = _attempt_accepts_answers(doc)
     if gate_err:
@@ -813,6 +915,98 @@ def patch_answer(attempt_id, student_id, answer_data, include_questions=False):
     return payload
 
 
+def check_practice_answer(attempt_id, student_id, answer_data):
+    """Зафиксировать ответ тренировки и сразу вернуть проверку."""
+    student_id = normalize_student_id(student_id)
+    try:
+        doc = _collection().find_one({"_id": ObjectId(attempt_id)})
+    except Exception:
+        return {"success": False, "error": "attempt_not_found"}
+
+    if not doc or doc.get("studentId") != student_id:
+        return {"success": False, "error": "attempt_not_found"}
+    if not doc.get("isPractice"):
+        return {"success": False, "error": "practice_attempt_required"}
+    if doc.get("status") != STATUS_IN_PROGRESS:
+        return {"success": False, "error": "attempt_not_active"}
+
+    access_error = _practice_access_error(doc, student_id)
+    if access_error:
+        return {"success": False, "error": access_error}
+
+    question_id = answer_data.get("questionId") if isinstance(answer_data, dict) else None
+    if question_id not in (doc.get("questionOrder") or []):
+        return {"success": False, "error": "invalid_question_id"}
+
+    definition = _definition_for_attempt(doc) or {}
+    question = next(
+        (
+            item
+            for item in (definition.get("questions") or [])
+            if item.get("questionId") == question_id
+        ),
+        None,
+    )
+    normalized, error = _validate_answer(answer_data, question)
+    if error:
+        return {"success": False, "error": error}
+
+    existing = next(
+        (
+            item
+            for item in (doc.get("answers") or [])
+            if item.get("questionId") == question_id
+        ),
+        None,
+    )
+    idempotent = False
+    if existing:
+        if not _answers_equal(existing, normalized):
+            return {"success": False, "error": "answer_locked"}
+        scored = score_answer_from_raw(existing, question)
+        idempotent = True
+    else:
+        scored = score_answer_from_raw(normalized, question)
+        result = _collection().update_one(
+            {
+                "_id": doc["_id"],
+                "studentId": student_id,
+                "status": STATUS_IN_PROGRESS,
+                "isPractice": True,
+                "answers.questionId": {"$ne": question_id},
+            },
+            {
+                "$push": {"answers": scored},
+                "$set": {"updatedAt": now_utc_iso()},
+            },
+        )
+        if not result.modified_count:
+            fresh = _collection().find_one({"_id": doc["_id"]}) or {}
+            existing = next(
+                (
+                    item
+                    for item in (fresh.get("answers") or [])
+                    if item.get("questionId") == question_id
+                ),
+                None,
+            )
+            if not existing or not _answers_equal(existing, normalized):
+                return {"success": False, "error": "answer_locked"}
+            scored = score_answer_from_raw(existing, question)
+            idempotent = True
+
+    fresh = _collection().find_one({"_id": doc["_id"]}) or doc
+    payload = {
+        "success": True,
+        "feedback": _practice_feedback(scored, question),
+        "answeredCount": len(fresh.get("answers") or []),
+        "totalQuestions": len(fresh.get("questionOrder") or []),
+    }
+    if idempotent:
+        payload["idempotent"] = True
+    return payload
+
+
 def patch_answers_batch(attempt_id, student_id, answers_list):
     """Пакетная синхронизация ответов (офлайн-очередь). Лёгкий attempt в ответе."""
     student_id = normalize_student_id(student_id)
@@ -829,6 +1023,10 @@ def patch_answers_batch(attempt_id, student_id, answers_list):
 
     if not doc or doc.get("studentId") != student_id:
         return {"success": False, "error": "attempt_not_found"}
+    if doc.get("isPractice"):
+        access_error = _practice_access_error(doc, student_id)
+        if access_error:
+            return {"success": False, "error": access_error}
 
     doc, gate_err = _attempt_accepts_answers(doc)
     if gate_err:
@@ -882,6 +1080,10 @@ def submit_attempt(attempt_id, student_id):
         return {"success": False, "error": "attempt_not_found"}
 
     is_practice = bool(doc.get("isPractice"))
+    if is_practice:
+        access_error = _practice_access_error(doc, student_id)
+        if access_error:
+            return {"success": False, "error": access_error}
     doc = _mark_expired_if_needed(doc)
     status = doc.get("status")
 
@@ -891,11 +1093,11 @@ def submit_attempt(attempt_id, student_id):
     if status not in (STATUS_IN_PROGRESS, STATUS_EXPIRED, STATUS_EXPIRED_PENDING_UPLOAD):
         return {"success": False, "error": "attempt_not_active"}
 
-    if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
+    if not is_practice and status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
         doc = _mark_expired_if_needed(doc)
         status = doc.get("status")
 
-    if status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
+    if not is_practice and status == STATUS_IN_PROGRESS and remaining_seconds(doc.get("expiresAt")) <= 0:
         return {"success": False, "error": "time_expired"}
 
     test = _definition_for_attempt(doc)

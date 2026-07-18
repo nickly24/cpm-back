@@ -19,6 +19,7 @@ from cpm_back.services.exam.test_attempts import (
     normalize_student_id,
     remaining_seconds,
 )
+from cpm_back.services.exam.student_test_access import resolve_student_test_access
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 STUDENT_DEFAULT_LIMIT = 5
@@ -151,8 +152,15 @@ def enrich_test_item(test_item, completed_ids, student_id, pending_map):
     )
     is_missed = (not is_external) and end_dt is not None and now > end_dt and not is_completed
     can_start = (not is_external) and is_active and (not is_completed)
-    can_practice = (not is_external) and is_completed
-    can_view_results = is_completed and bool(test_item.get("visible"))
+    access = resolve_student_test_access(
+        test_item,
+        has_completed_session=is_completed,
+        has_open_official_attempt=bool(pending_map.get(str(test_item.get("id")))),
+        is_external=is_external,
+        current_time=now,
+    )
+    can_practice = access.can_practice
+    can_view_results = access.can_view_results
     status = "external"
     if not is_external:
         if is_completed:
