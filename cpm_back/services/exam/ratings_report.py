@@ -83,7 +83,8 @@ def get_ratings_report():
                     s.group_id,
                     g.name AS group_name,
                     s.school_id,
-                    sch.short_name AS school_short_name
+                    sch.name AS school_name,
+                    COALESCE(NULLIF(TRIM(sch.short_name), ''), sch.name) AS school_short_name
                 FROM Allratings ar
                 JOIN students s ON s.id = ar.student_id
                 LEFT JOIN `groups` g ON g.id = s.group_id
@@ -207,7 +208,7 @@ def get_ratings_report():
                     "test_direction",
                     direction_key,
                     "Среднее",
-                    direction["label"],
+                    None,
                     group_key=group_key,
                     group_label=direction["label"],
                 )
@@ -226,7 +227,7 @@ def get_ratings_report():
                         "test",
                         key,
                         meta["label"],
-                        meta.get("subtitle"),
+                        None,
                         group_key=group_key,
                         group_label=direction["label"],
                     )
@@ -246,6 +247,7 @@ def get_ratings_report():
                 "group_id": row.get("group_id"),
                 "group_name": row.get("group_name"),
                 "school_id": row.get("school_id"),
+                "school_name": row.get("school_name"),
                 "school_short_name": row.get("school_short_name"),
                 "homework": float(row["homework"] or 0),
                 "exams": float(row["exams"] or 0),
