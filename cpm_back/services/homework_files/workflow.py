@@ -152,8 +152,9 @@ class HomeworkWorkflow:
                     raise HomeworkWorkflowError(str(exc), 503)
                 cur.execute(
                     'INSERT INTO homework_file_jobs '
-                    '(id,client_upload_id,submission_id,homework_id,student_id,status,stage,progress,staging_key,source_size_bytes) '
-                    "VALUES (%s,%s,%s,%s,%s,'queued','checking',5,%s,%s)",
+                    '(id,client_upload_id,submission_id,homework_id,student_id,status,stage,progress,staging_key,source_size_bytes,'
+                    'available_at,created_at,updated_at) '
+                    "VALUES (%s,%s,%s,%s,%s,'queued','checking',5,%s,%s,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
                     (job_id, str(client_upload_id), sub['id'], homework_id, user['id'], staging_key, size),
                 )
                 if sub['state'] not in ('submitted', 'in_review'):

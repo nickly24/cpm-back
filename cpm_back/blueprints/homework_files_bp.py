@@ -124,7 +124,7 @@ def monitoring(current_user=None):
         cur=conn.cursor(dictionary=True)
         cur.execute('SELECT status,COUNT(*) count FROM homework_file_jobs GROUP BY status'); jobs=cur.fetchall()
         cur.execute("SELECT id,status,stage,progress,error_code,attempts,manual_attempts,created_at FROM homework_file_jobs ORDER BY created_at DESC LIMIT 50");recent_jobs=cur.fetchall()
-        cur.execute("SELECT updated_at heartbeat,TIMESTAMPDIFF(SECOND,updated_at,UTC_TIMESTAMP(6)) age_seconds FROM application_settings WHERE setting_key='homework_runner_heartbeat'"); runner=cur.fetchone() or {'heartbeat':None,'age_seconds':None}
+        cur.execute("SELECT setting_value heartbeat,TIMESTAMPDIFF(SECOND,CAST(setting_value AS DATETIME(6)),UTC_TIMESTAMP(6)) age_seconds FROM application_settings WHERE setting_key='homework_runner_heartbeat'"); runner=cur.fetchone() or {'heartbeat':None,'age_seconds':None}
         try: storage=HomeworkStorage(config).size_summary()
         except (StorageNotConfigured,Exception): storage={'file_count':None,'total_bytes':None}
         failed=next((row['count'] for row in jobs if row['status']=='failed'),0);warnings=[]
