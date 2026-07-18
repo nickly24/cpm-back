@@ -32,6 +32,20 @@ class Config:
     # Пул MySQL
     MYSQL_POOL_SIZE = int(os.environ.get('MYSQL_POOL_SIZE', '25'))
 
+    # Homework files: credentials are environment-only.
+    S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL')
+    S3_REGION = os.environ.get('S3_REGION', 'ru-1')
+    S3_BUCKET = os.environ.get('S3_BUCKET')
+    S3_ACCESS_KEY_ID = os.environ.get('S3_ACCESS_KEY_ID')
+    S3_SECRET_ACCESS_KEY = os.environ.get('S3_SECRET_ACCESS_KEY')
+    S3_PRESIGN_TTL_SECONDS = int(os.environ.get('S3_PRESIGN_TTL_SECONDS', '300'))
+    HOMEWORK_JOBS_ENABLED = os.environ.get('HOMEWORK_JOBS_ENABLED', '1') == '1'
+    HOMEWORK_PDF_MAX_BYTES = int(os.environ.get('HOMEWORK_PDF_MAX_BYTES', str(10 * 1024 * 1024)))
+    HOMEWORK_PDF_MAX_PAGES = int(os.environ.get('HOMEWORK_PDF_MAX_PAGES', '35'))
+    VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
+    VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY')
+    VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:admin@cpm-lms.ru')
+
     # CORS — прод + любой localhost/127.0.0.1 (любой порт)
     CORS_ORIGINS = [
         'https://cpm-lms.ru',

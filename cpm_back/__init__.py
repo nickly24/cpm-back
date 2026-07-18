@@ -16,6 +16,8 @@ from .db.mongo import init_mongo
 from .blueprints import (
     auth_bp,
     homework_bp,
+    homework_files_bp,
+    homework_chat_bp,
     students_bp,
     groups_bp,
     schools_bp,
@@ -76,6 +78,13 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY
     app.config['JWT_ALGORITHM'] = config.JWT_ALGORITHM
     app.config['JWT_EXPIRATION_HOURS'] = config.JWT_EXPIRATION_HOURS
+    for key in (
+        'S3_ENDPOINT_URL', 'S3_REGION', 'S3_BUCKET', 'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY', 'S3_PRESIGN_TTL_SECONDS', 'HOMEWORK_JOBS_ENABLED',
+        'HOMEWORK_PDF_MAX_BYTES', 'HOMEWORK_PDF_MAX_PAGES', 'VAPID_PRIVATE_KEY',
+        'VAPID_PUBLIC_KEY', 'VAPID_SUBJECT',
+    ):
+        app.config[key] = getattr(config, key)
 
     from flask_cors import CORS
 
@@ -97,12 +106,14 @@ def create_app():
         resources={r'/*': {
             'origins': cors_origins,
             'methods': ['GET', 'POST', 'PATCH', 'OPTIONS', 'PUT', 'DELETE'],
-            'allow_headers': ['Content-Type', 'Authorization', 'X-Requested-With'],
+            'allow_headers': ['Content-Type', 'Authorization', 'X-Requested-With', 'Idempotency-Key'],
             'supports_credentials': True,
             'expose_headers': ['Content-Type'],
         }},
         intercept_exceptions=True,
     )
+    from cpm_back.realtime import init_realtime
+    init_realtime(app, [origin for origin in cors_origins if isinstance(origin, str)])
 
     @app.before_request
     def cors_preflight_short_circuit():
@@ -124,6 +135,12 @@ def create_app():
         recover_stale_user_import_jobs()
     except Exception as exc:
         logger.warning("recover_stale_user_import_jobs: %s", exc)
+
+    try:
+        from cpm_back.services.homework_files.jobs import start_homework_job_runner
+        start_homework_job_runner(app)
+    except Exception as exc:
+        logger.warning("start_homework_job_runner error_code=%s", type(exc).__name__)
 
     try:
         from cpm_back.services.telegram_bot import start_bot_if_configured
@@ -165,6 +182,8 @@ def create_app():
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(homework_bp)
+    app.register_blueprint(homework_files_bp)
+    app.register_blueprint(homework_chat_bp)
     app.register_blueprint(students_bp)
     app.register_blueprint(groups_bp)
     app.register_blueprint(schools_bp)

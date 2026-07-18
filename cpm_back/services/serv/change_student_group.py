@@ -22,12 +22,19 @@ def assign_student_to_group(student_id, group_id):
         # Обновляем группу у студента
         update_query = "UPDATE students SET group_id = %s WHERE id = %s"
         cursor.execute(update_query, (group_id, student_id))
+        cursor.execute(
+            "UPDATE homework_submissions SET state='submitted',reviewer_role=NULL,reviewer_id=NULL "
+            "WHERE student_id=%s AND state='in_review' AND reviewer_role='proctor'",
+            (student_id,),
+        )
         connection.commit()
 
         return {"status": True}
 
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
+        if connection:
+            connection.rollback()
         return {"status": False, "error": str(err)}
 
     finally:
