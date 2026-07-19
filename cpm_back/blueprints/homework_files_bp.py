@@ -5,6 +5,7 @@ from cpm_back.config import config
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.services.homework_files import HomeworkWorkflow, HomeworkWorkflowError
 from cpm_back.services.homework_files.storage import HomeworkStorage, StorageNotConfigured
+from cpm_back.services.homework_files.realtime_events import queue_job_progress, queue_submission_changed
 
 homework_files_bp = Blueprint('homework_files', __name__, url_prefix='/api/homework-files')
 
@@ -67,7 +68,9 @@ def cancel_job(job_id, current_user=None):
         cur=conn.cursor(dictionary=True); cur.execute('SELECT * FROM homework_file_jobs WHERE id=%s AND student_id=%s FOR UPDATE',(job_id,current_user['id'])); job=cur.fetchone()
         if not job: raise HomeworkWorkflowError('job_not_found',404)
         if job['status'] in ('ready','failed','cancelled'): raise HomeworkWorkflowError('job_not_cancellable',409)
-        key=job['staging_key']; cur.execute("UPDATE homework_file_jobs SET status='cancelled',stage='cancelled',lease_expires_at=UTC_TIMESTAMP(6) WHERE id=%s",(job_id,)); conn.commit()
+        key=job['staging_key'];cur.execute("UPDATE homework_file_jobs SET status='cancelled',stage='cancelled',lease_expires_at=UTC_TIMESTAMP(6) WHERE id=%s",(job_id,))
+        queue_job_progress(cur,job['student_id'],{**job,'status':'cancelled','stage':'cancelled'})
+        queue_submission_changed(cur,job['student_id'],job['homework_id'],job['submission_id']);conn.commit()
     except Exception: conn.rollback(); raise
     finally: close_db_connection(conn)
     try: HomeworkStorage(config).delete(key)
@@ -85,7 +88,8 @@ def retry_job(job_id, current_user=None):
         _service()._assert_actor(cur,current_user,job['student_id'])
         if job['status'] != 'failed': raise HomeworkWorkflowError('job_not_retryable',409)
         if job['manual_attempts'] >= 3: raise HomeworkWorkflowError('manual_retry_limit',409)
-        cur.execute("UPDATE homework_file_jobs SET status='queued',stage='checking',progress=5,error_code=NULL,manual_attempts=manual_attempts+1,available_at=UTC_TIMESTAMP(6) WHERE id=%s",(job_id,)); conn.commit()
+        cur.execute("UPDATE homework_file_jobs SET status='queued',stage='checking',progress=5,error_code=NULL,manual_attempts=manual_attempts+1,available_at=UTC_TIMESTAMP(6) WHERE id=%s",(job_id,))
+        queue_job_progress(cur,job['student_id'],{**job,'status':'queued','stage':'checking','progress':5,'error_code':None});conn.commit()
         return jsonify({'status':True})
     except Exception: conn.rollback(); raise
     finally: close_db_connection(conn)

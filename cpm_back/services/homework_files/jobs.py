@@ -11,6 +11,11 @@ from pathlib import Path
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from .pdf_pipeline import process_pdf, PdfRejected
 from .storage import HomeworkStorage
+from .realtime_events import (
+    create_notification,
+    queue_job_progress,
+    queue_submission_changed,
+)
 
 logger = logging.getLogger(__name__)
 _started = False
@@ -86,6 +91,8 @@ def _run_one(app):
             "lease_owner=%s,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 90 SECOND),heartbeat_at=UTC_TIMESTAMP(6) WHERE id=%s",
             (worker, job['id']),
         )
+        cur.execute('SELECT id,homework_id,student_id,status,stage,progress,error_code FROM homework_file_jobs WHERE id=%s',(job['id'],))
+        running_job=cur.fetchone();queue_job_progress(cur,running_job['student_id'],running_job)
         conn.commit()
         _process(app, job)
         return True
@@ -140,6 +147,9 @@ def _process(app, job):
                 next_state = 'revision_requested' if sub['current_file_id'] else 'draft'
                 cur.execute('UPDATE homework_submissions SET draft_file_id=%s,state=%s WHERE id=%s',(file_id,next_state,job['submission_id']))
                 cur.execute("UPDATE homework_file_jobs SET status='ready',stage='ready',progress=100,result_file_id=%s,lease_owner=NULL,lease_expires_at=NULL,error_code=NULL WHERE id=%s",(file_id,job['id']))
+                cur.execute('SELECT id,homework_id,student_id,status,stage,progress,error_code FROM homework_file_jobs WHERE id=%s',(job['id'],))
+                ready_job=cur.fetchone();queue_job_progress(cur,ready_job['student_id'],ready_job)
+                queue_submission_changed(cur,ready_job['student_id'],ready_job['homework_id'],job['submission_id'])
                 conn.commit()
             except Exception:
                 conn.rollback(); raise
@@ -157,14 +167,17 @@ def _process(app, job):
 def _progress(job_id, stage, progress):
     conn=get_db_connection()
     try:
-        cur=conn.cursor(); cur.execute('UPDATE homework_file_jobs SET stage=%s,progress=%s,heartbeat_at=UTC_TIMESTAMP(6),lease_expires_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 90 SECOND) WHERE id=%s',(stage,progress,job_id)); conn.commit()
+        cur=conn.cursor(dictionary=True);cur.execute('UPDATE homework_file_jobs SET stage=%s,progress=%s,heartbeat_at=UTC_TIMESTAMP(6),lease_expires_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 90 SECOND) WHERE id=%s',(stage,progress,job_id))
+        cur.execute('SELECT id,homework_id,student_id,status,stage,progress,error_code FROM homework_file_jobs WHERE id=%s',(job_id,));job=cur.fetchone()
+        if job:queue_job_progress(cur,job['student_id'],job)
+        conn.commit()
     finally: close_db_connection(conn)
 
 
 def _fail(job, code, terminal):
     conn=get_db_connection()
     try:
-        cur=conn.cursor()
+        cur=conn.cursor(dictionary=True)
         status='failed' if terminal else 'retry'
         delay=min(30, 2 ** (int(job['attempts'] or 0) + 1))
         cur.execute(
@@ -173,7 +186,10 @@ def _fail(job, code, terminal):
         )
         if terminal:
             cur.execute("UPDATE homework_submissions SET state=IF(current_file_id IS NULL,'none',state) WHERE id=%s",(job['submission_id'],))
-            cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id) VALUES ('student',%s,'job_failed',%s,%s)",(job['student_id'],job['homework_id'],job['student_id']))
+            create_notification(cur,'student',job['student_id'],'job_failed',job['homework_id'],job['student_id'])
+            queue_submission_changed(cur,job['student_id'],job['homework_id'],job['submission_id'])
+        cur.execute('SELECT id,homework_id,student_id,status,stage,progress,error_code FROM homework_file_jobs WHERE id=%s',(job['id'],));failed_job=cur.fetchone()
+        if failed_job:queue_job_progress(cur,failed_job['student_id'],failed_job)
         conn.commit()
         if terminal:
             try:
