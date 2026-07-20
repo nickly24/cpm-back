@@ -13,7 +13,7 @@ def assign_proctor_to_group(proctor_id, group_id):
             return {"status": False, "error": "Group not found"}
 
         # Проверим существует ли проктор
-        cursor.execute("SELECT id,group_id FROM proctors WHERE id = %s", (proctor_id,))
+        cursor.execute("SELECT id FROM proctors WHERE id = %s", (proctor_id,))
         proctor = cursor.fetchone()
         if not proctor:
             return {"status": False, "error": "Proctor not found"}
@@ -21,22 +21,12 @@ def assign_proctor_to_group(proctor_id, group_id):
         # Обновляем группу у проктора
         update_query = "UPDATE proctors SET group_id = %s WHERE id = %s"
         cursor.execute(update_query, (group_id, proctor_id))
-        old_group_id = proctor[1]
-        if old_group_id is not None:
-            cursor.execute(
-                "UPDATE homework_submissions sub JOIN students s ON s.id=sub.student_id "
-                "SET sub.state='submitted',sub.reviewer_role=NULL,sub.reviewer_id=NULL "
-                "WHERE s.group_id=%s AND sub.state='in_review' AND sub.reviewer_role='proctor'",
-                (old_group_id,),
-            )
         connection.commit()
 
         return {"status": True}
 
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
-        if connection:
-            connection.rollback()
         return {"status": False, "error": str(err)}
 
     finally:

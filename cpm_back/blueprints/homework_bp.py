@@ -24,9 +24,6 @@ from cpm_back.services.serv import (
     toggle_homework_published,
     get_homework_overview,
 )
-from cpm_back.config import config
-from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
-from cpm_back.services.homework_files import HomeworkWorkflow, HomeworkWorkflowError
 
 homework_bp = Blueprint('homework', __name__, url_prefix='/api')
 
@@ -54,11 +51,8 @@ def list_homeworks():
 @homework_bp.route('/get-homework-sessions', methods=['POST'])
 @require_role('admin', 'proctor')
 def proctor_sessions(current_user=None):
-    data = request.get_json() or {}
-    proctor_id = current_user.get('id') if current_user.get('role') == 'proctor' else data.get('proctorId')
-    if not proctor_id:
-        return jsonify({'status': False, 'error': 'proctorId_required'}), 400
-    answer = get_proctor_homework_sessions(proctor_id, data.get('homeworkId'))
+    data = request.get_json()
+    answer = get_proctor_homework_sessions(data.get('proctorId'), data.get('homeworkId'))
     return jsonify(answer)
 
 
@@ -80,12 +74,7 @@ def pass_hw(current_user=None):
     student_id = data.get('studentId')
     homework_id = data.get('homeworkId')
     manual_result = data.get('result')
-    denied = _validate_legacy_grade_access(current_user, session_id, student_id, homework_id)
-    if denied:
-        return denied
     answer = pass_homework(session_id, date_object, student_id, homework_id, manual_result)
-    if answer.get('status'):
-        _cleanup_after_legacy_grade(session_id, student_id, homework_id)
     return jsonify(answer)
 
 
@@ -95,7 +84,7 @@ def pass_hw_bulk(current_user=None):
     data = request.get_json() or {}
     date_pass = data.get('datePass')
     homework_id = data.get('homeworkId')
-    proctor_id = current_user.get('id') if current_user.get('role') == 'proctor' else data.get('proctorId')
+    proctor_id = data.get('proctorId')
     if not date_pass or not homework_id or not proctor_id:
         return jsonify({'status': False, 'error': 'datePass, homeworkId и proctorId обязательны'}), 400
     try:
@@ -110,12 +99,7 @@ def pass_hw_bulk(current_user=None):
             manual_result = int(manual_result)
         except (TypeError, ValueError):
             return jsonify({'status': False, 'error': 'invalid_result'}), 400
-    denied = _validate_bulk_file_workflow(current_user, proctor_id, homework_id)
-    if denied:
-        return denied
     answer = pass_homework_bulk(proctor_id, homework_id, date_object, manual_result)
-    if answer.get('status'):
-        _cleanup_after_legacy_bulk_grade(proctor_id, homework_id)
     return jsonify(answer), 200 if answer.get('status') else 400
 
 
@@ -211,10 +195,6 @@ def edit_session(current_user=None):
             homework_id = int(homework_id)
     except (TypeError, ValueError):
         return jsonify({'status': False, 'error': 'invalid_ids'}), 400
-
-    denied = _validate_legacy_grade_access(current_user, session_id, student_id, homework_id)
-    if denied:
-        return denied
 
     answer = edit_homework_session(
         session_id=session_id,
@@ -352,72 +332,3 @@ def delete_hw(current_user=None):
 @require_role('admin', 'supervisor', 'proctor')
 def ov_table(current_user=None):
     return jsonify(get_ov_homework_table())
-
-
-def _validate_legacy_grade_access(user, session_id, student_id, homework_id):
-    """Protect old grading routes from cross-group access and file-workflow bypass."""
-    connection = get_db_connection()
-    try:
-        cursor = connection.cursor(dictionary=True)
-        if session_id:
-            cursor.execute('SELECT student_id,homework_id FROM homework_sessions WHERE id=%s', (session_id,))
-            session = cursor.fetchone()
-            if not session:
-                return jsonify({'status': False, 'error': 'session_not_found'}), 404
-            student_id, homework_id = session['student_id'], session['homework_id']
-        if student_id is None or homework_id is None:
-            return jsonify({'status': False, 'error': 'target_required'}), 400
-        try:
-            HomeworkWorkflow(config)._assert_actor(cursor, user, int(student_id))
-        except HomeworkWorkflowError as exc:
-            return jsonify({'status': False, 'error': exc.code}), exc.status
-        cursor.execute('SELECT state FROM homework_submissions WHERE homework_id=%s AND student_id=%s',
-                       (homework_id, student_id))
-        submission = cursor.fetchone()
-        if submission and submission['state'] not in ('none','uploading','processing','draft'):
-            return jsonify({'status': False, 'error': 'use_file_workflow'}), 409
-        return None
-    finally:
-        close_db_connection(connection)
-
-
-def _cleanup_after_legacy_grade(session_id, student_id, homework_id):
-    connection=get_db_connection()
-    try:
-        cursor=connection.cursor(dictionary=True)
-        if session_id:
-            cursor.execute('SELECT student_id,homework_id FROM homework_sessions WHERE id=%s',(session_id,));row=cursor.fetchone()
-            if not row:return
-            student_id,homework_id=row['student_id'],row['homework_id']
-        from cpm_back.services.homework_files.cascade import queue_and_delete_submission_data
-        queue_and_delete_submission_data(cursor,homework_id=homework_id,student_id=student_id)
-        connection.commit()
-    except Exception:
-        connection.rollback()
-    finally:close_db_connection(connection)
-
-
-def _validate_bulk_file_workflow(user, proctor_id, homework_id):
-    connection=get_db_connection()
-    try:
-        cursor=connection.cursor(dictionary=True)
-        cursor.execute('SELECT group_id FROM proctors WHERE id=%s',(proctor_id,));proctor=cursor.fetchone()
-        if not proctor:return jsonify({'status':False,'error':'proctor_not_found'}),404
-        if user.get('role')=='proctor' and int(user['id'])!=int(proctor_id):return jsonify({'status':False,'error':'forbidden'}),403
-        cursor.execute("SELECT COUNT(*) count FROM homework_submissions sub JOIN students s ON s.id=sub.student_id WHERE sub.homework_id=%s AND s.group_id=%s AND sub.state IN ('submitted','in_review','revision_requested','graded')",(homework_id,proctor['group_id']))
-        if cursor.fetchone()['count']:return jsonify({'status':False,'error':'use_file_workflow'}),409
-        return None
-    finally:close_db_connection(connection)
-
-
-def _cleanup_after_legacy_bulk_grade(proctor_id,homework_id):
-    connection=get_db_connection()
-    try:
-        cursor=connection.cursor(dictionary=True);cursor.execute('SELECT group_id FROM proctors WHERE id=%s',(proctor_id,));row=cursor.fetchone()
-        if not row:return
-        cursor.execute('SELECT id FROM students WHERE group_id=%s',(row['group_id'],))
-        from cpm_back.services.homework_files.cascade import queue_and_delete_submission_data
-        for student in cursor.fetchall():queue_and_delete_submission_data(cursor,homework_id=homework_id,student_id=student['id'])
-        connection.commit()
-    except Exception:connection.rollback()
-    finally:close_db_connection(connection)

@@ -1,7 +1,5 @@
 from .auth_bp import auth_bp
 from .homework_bp import homework_bp
-from .homework_files_bp import homework_files_bp
-from .homework_chat_bp import homework_chat_bp
 from .students_bp import students_bp
 from .groups_bp import groups_bp
 from .schools_bp import schools_bp
@@ -27,8 +25,6 @@ from .test_drafts_bp import test_drafts_bp
 __all__ = [
     'auth_bp',
     'homework_bp',
-    'homework_files_bp',
-    'homework_chat_bp',
     'students_bp',
     'groups_bp',
     'schools_bp',

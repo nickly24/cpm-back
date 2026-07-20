@@ -22,13 +22,14 @@ def delete_user(role, user_id):
         # Удаляем из сущности
         table_name = user_tables[role]
         if role == "student":
-            from cpm_back.services.homework_files.cascade import queue_and_delete_submission_data
-            queue_and_delete_submission_data(cursor, student_id=user_id)
             ensure_student_credentials_table(cursor)
             cursor.execute("DELETE FROM student_credentials WHERE student_id = %s", (user_id,))
+            connection.commit()
 
         delete_entity_query = f"DELETE FROM {table_name} WHERE id = %s"
         cursor.execute(delete_entity_query, (user_id,))
+        connection.commit()
+
         # Удаляем из auth_users
         delete_auth_query = "DELETE FROM auth_users WHERE role = %s AND ref_id = %s"
         cursor.execute(delete_auth_query, (role, user_id))

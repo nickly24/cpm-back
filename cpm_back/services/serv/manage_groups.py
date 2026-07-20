@@ -88,10 +88,6 @@ def delete_group(group_id):
             return {"status": False, "error": f"Группа с ID {group_id} не найдена"}
 
         cursor.execute(
-            "UPDATE homework_submissions sub JOIN students s ON s.id=sub.student_id SET sub.state='submitted',sub.reviewer_role=NULL,sub.reviewer_id=NULL WHERE s.group_id=%s AND sub.state='in_review' AND sub.reviewer_role='proctor'",
-            (group_id,),
-        )
-        cursor.execute(
             "UPDATE students SET group_id = NULL WHERE group_id = %s",
             (group_id,),
         )
