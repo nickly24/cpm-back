@@ -244,7 +244,7 @@ class HomeworkWorkflow:
                 'SELECT hs.id,hs.homework_id,hs.student_id,hs.state,hs.submitted_at_utc,hs.reviewer_role,hs.reviewer_id,'
                 'h.name homework_name,h.deadline,s.full_name student_name,g.name group_name '
                 'FROM homework_submissions hs JOIN homework h ON h.id=hs.homework_id '
-                'JOIN students s ON s.id=hs.student_id LEFT JOIN `groups` g ON g.id=s.group_id '
+                'JOIN students s ON s.id=hs.student_id LEFT JOIN groups g ON g.id=s.group_id '
                 'LEFT JOIN proctors p ON p.group_id=s.group_id '
                 f'WHERE hs.id>%s{scope} AND hs.state IN ({marks}) ORDER BY hs.id LIMIT %s', tuple(params),
             )

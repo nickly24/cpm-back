@@ -145,6 +145,6 @@ def archive(current_user=None):
             if value:where.append(f'{column}=%s');params.append(value)
         if request.args.get('date_from'):where.append('sub.submitted_at_utc>=%s');params.append(request.args['date_from'])
         if request.args.get('date_to'):where.append('sub.submitted_at_utc<DATE_ADD(%s,INTERVAL 1 DAY)');params.append(request.args['date_to'])
-        cursor.execute('SELECT sub.id,sub.homework_id,sub.student_id,sub.submitted_at_utc,f.size_bytes,f.page_count,s.full_name student_name,h.name homework_name,g.name group_name FROM homework_submissions sub JOIN homework_submission_files f ON f.id=sub.current_file_id JOIN students s ON s.id=sub.student_id JOIN homework h ON h.id=sub.homework_id LEFT JOIN `groups` g ON g.id=s.group_id WHERE '+' AND '.join(where)+' ORDER BY sub.submitted_at_utc DESC LIMIT 200',tuple(params))
+        cursor.execute('SELECT sub.id,sub.homework_id,sub.student_id,sub.submitted_at_utc,f.size_bytes,f.page_count,s.full_name student_name,h.name homework_name,g.name group_name FROM homework_submissions sub JOIN homework_submission_files f ON f.id=sub.current_file_id JOIN students s ON s.id=sub.student_id JOIN homework h ON h.id=sub.homework_id LEFT JOIN groups g ON g.id=s.group_id WHERE '+' AND '.join(where)+' ORDER BY sub.submitted_at_utc DESC LIMIT 200',tuple(params))
         return jsonify({'items':cursor.fetchall()})
     finally:close_db_connection(connection)
