@@ -1,5 +1,6 @@
 import datetime as dt
 import hashlib
+import json
 import uuid
 
 from flask import Blueprint, jsonify, request
@@ -9,10 +10,6 @@ from cpm_back.config import config
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.services.homework_files import HomeworkWorkflow, HomeworkWorkflowError
 from cpm_back.services.homework_files.push import dispatch_push
-from cpm_back.services.homework_files.realtime_events import (
-    create_notification,
-    queue_thread_event,
-)
 
 homework_chat_bp=Blueprint('homework_chat',__name__,url_prefix='/api/homework-chat')
 
@@ -91,25 +88,22 @@ def send_message(current_user=None):
         thread=_thread(cur,homework_id,student_id,True)
         cur.execute('SELECT id FROM homework_chat_messages WHERE thread_id=%s AND client_message_id=%s',(thread['id'],str(client_id))); existing=cur.fetchone()
         if existing:
-            cur.execute('SELECT id,client_message_id,sender_role,sender_id,kind,body,event_code,created_at FROM homework_chat_messages WHERE id=%s',(existing['id'],))
-            message=cur.fetchone();conn.rollback();return jsonify({'id':existing['id'],'thread_id':thread['id'],'message':message,'duplicate':True})
+            conn.rollback(); return jsonify({'id':existing['id'],'duplicate':True})
         cur.execute("INSERT INTO homework_chat_messages (thread_id,client_message_id,sender_role,sender_id,kind,body) VALUES (%s,%s,%s,%s,'user',%s)",(thread['id'],str(client_id),current_user['role'],current_user['id'],text)); message_id=cur.lastrowid
-        queue_thread_event(cur,thread['id'],'message.created',message_id)
+        cur.execute("INSERT INTO homework_realtime_outbox (thread_id,event_type,entity_id,payload_json,expires_at) VALUES (%s,'message.created',%s,%s,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY))",(thread['id'],message_id,json.dumps({'message_id':message_id})))
         # No body copy: notification points to the thread only.
         if current_user['role']=='student':
             cur.execute('SELECT p.id FROM students s JOIN proctors p ON p.group_id=s.group_id WHERE s.id=%s',(student_id,)); recipient=cur.fetchone()
-            if recipient:create_notification(cur,'proctor',recipient['id'],'chat_message',homework_id,student_id,thread['id'])
-            cur.execute('SELECT admin_id FROM homework_chat_admin_followers WHERE thread_id=%s',(thread['id'],))
-            for follower in cur.fetchall():create_notification(cur,'admin',follower['admin_id'],'chat_message',homework_id,student_id,thread['id'])
+            if recipient: cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id,thread_id) VALUES ('proctor',%s,'chat_message',%s,%s,%s)",(recipient['id'],homework_id,student_id,thread['id']))
+            cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id,thread_id) SELECT 'admin',admin_id,'chat_message',%s,%s,%s FROM homework_chat_admin_followers WHERE thread_id=%s",(homework_id,student_id,thread['id'],thread['id']))
         else:
-            create_notification(cur,'student',student_id,'chat_message',homework_id,student_id,thread['id'])
-        cur.execute('SELECT id,client_message_id,sender_role,sender_id,kind,body,event_code,created_at FROM homework_chat_messages WHERE id=%s',(message_id,));message=cur.fetchone()
+            cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id,thread_id) VALUES ('student',%s,'chat_message',%s,%s,%s)",(student_id,homework_id,student_id,thread['id']))
         conn.commit()
         if current_user['role']=='student' and recipient:
             dispatch_push('proctor',recipient['id'],'Новое сообщение',f'Сообщение по домашней работе: {text[:100]}',f'/cabinet/proctor/messages')
         elif current_user['role']!='student':
             dispatch_push('student',student_id,'Новое сообщение',f'Сообщение по домашней работе: {text[:100]}',f'/cabinet/student/homework')
-        return jsonify({'id':message_id,'thread_id':thread['id'],'message':message}),201
+        return jsonify({'id':message_id,'thread_id':thread['id']}),201
     except Exception: conn.rollback(); raise
     finally: close_db_connection(conn)
 
@@ -121,9 +115,7 @@ def mark_read(thread_id,current_user=None):
     try:
         cur=conn.cursor(dictionary=True); _access(cur,current_user,thread_id)
         cur.execute('INSERT INTO homework_chat_reads (thread_id,reader_role,reader_id,last_message_id) VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE last_message_id=GREATEST(last_message_id,VALUES(last_message_id))',(thread_id,current_user['role'],current_user['id'],message_id))
-        queue_thread_event(cur,thread_id,'message.read',message_id,{
-            'reader_role':current_user['role'],'reader_id':current_user['id'],'last_message_id':message_id,
-        });conn.commit();return jsonify({'status':True})
+        cur.execute("INSERT INTO homework_realtime_outbox (thread_id,event_type,entity_id,expires_at) VALUES (%s,'message.read',%s,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY))",(thread_id,message_id)); conn.commit(); return jsonify({'status':True})
     except Exception: conn.rollback(); raise
     finally: close_db_connection(conn)
 

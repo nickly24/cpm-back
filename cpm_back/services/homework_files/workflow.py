@@ -6,12 +6,6 @@ from zoneinfo import ZoneInfo
 
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from .storage import HomeworkStorage, StorageNotConfigured, safe_pdf_filename
-from .realtime_events import (
-    create_notification,
-    queue_job_progress,
-    queue_submission_changed,
-    queue_thread_event,
-)
 
 MOSCOW = ZoneInfo('Europe/Moscow')
 ACTIVE_REVIEW_STATES = {'submitted', 'in_review', 'revision_requested'}
@@ -165,12 +159,8 @@ class HomeworkWorkflow:
                 )
                 if sub['state'] not in ('submitted', 'in_review'):
                     cur.execute("UPDATE homework_submissions SET state='processing' WHERE id=%s", (sub['id'],))
-                queue_job_progress(cur,user['id'],{
-                    'id':job_id,'homework_id':homework_id,'status':'queued','stage':'checking','progress':5,'error_code':None,
-                })
-                queue_submission_changed(cur,user['id'],homework_id,sub['id'])
                 conn.commit()
-                return {'id': job_id, 'homework_id':homework_id,'status': 'queued', 'stage': 'checking', 'progress': 5}
+                return {'id': job_id, 'status': 'queued', 'stage': 'checking', 'progress': 5}
             except Exception:
                 conn.rollback()
                 raise
@@ -218,9 +208,12 @@ class HomeworkWorkflow:
                 'submitted_at_utc=%s,reviewer_role=NULL,reviewer_id=NULL WHERE id=%s', (now, sub['id']),
             )
             self._system_event(cur, homework_id, user['id'], 'submission.sent')
+            cur.execute(
+                "INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id) "
+                "SELECT 'proctor',p.id,'submission_sent',%s,%s FROM students s JOIN proctors p ON p.group_id=s.group_id WHERE s.id=%s",
+                (homework_id,user['id'],user['id']),
+            )
             cur.execute('SELECT p.id FROM students s JOIN proctors p ON p.group_id=s.group_id WHERE s.id=%s',(user['id'],));proctor=cur.fetchone()
-            if proctor:create_notification(cur,'proctor',proctor['id'],'submission_sent',homework_id,user['id'])
-            queue_submission_changed(cur,user['id'],homework_id,sub['id'])
             conn.commit()
             if proctor:
                 try:
@@ -298,7 +291,7 @@ class HomeworkWorkflow:
                 score=int(result)
                 if score<0 or score>100: raise HomeworkWorkflowError('invalid_result')
                 cur.execute('UPDATE homework_sessions SET result=%s WHERE homework_id=%s AND student_id=%s',(score,sub['homework_id'],sub['student_id']))
-                create_notification(cur,'student',sub['student_id'],'grade_changed',sub['homework_id'],sub['student_id']);event='grade.changed'
+                cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id) VALUES ('student',%s,'grade_changed',%s,%s)",(sub['student_id'],sub['homework_id'],sub['student_id']));event='grade.changed'
             elif action == 'resubmit':
                 cur.execute('SELECT object_key FROM homework_submission_files WHERE id=%s', (sub['current_file_id'],)); f=cur.fetchone(); delete_key=f and f['object_key']
                 cur.execute('DELETE FROM homework_submission_files WHERE submission_id=%s', (submission_id,))
@@ -310,8 +303,7 @@ class HomeworkWorkflow:
                 self._system_event(cur, sub['homework_id'], sub['student_id'], event)
             notice_kind={'claim':'review_claimed','request-revision':'revision_requested','grade':'graded'}.get(action)
             if notice_kind:
-                create_notification(cur,'student',sub['student_id'],notice_kind,sub['homework_id'],sub['student_id'])
-            queue_submission_changed(cur,sub['student_id'],sub['homework_id'],sub['id'])
+                cur.execute("INSERT INTO notifications (recipient_role,recipient_id,kind,homework_id,student_id) VALUES ('student',%s,%s,%s,%s)",(sub['student_id'],notice_kind,sub['homework_id'],sub['student_id']))
             conn.commit()
             if action in ('claim','request-revision','grade','edit-grade'):
                 title={'claim':'Работа взята на проверку','request-revision':'Нужна доработка','grade':'Работа оценена','edit-grade':'Балл изменён'}[action]
@@ -355,12 +347,10 @@ class HomeworkWorkflow:
     def _system_event(self, cur, homework_id, student_id, code):
         thread_id=self._thread(cur,homework_id,student_id)
         cur.execute("INSERT INTO homework_chat_messages (thread_id,sender_role,kind,event_code) VALUES (%s,'system','system',%s)", (thread_id,code))
-        queue_thread_event(cur,thread_id,'message.created',cur.lastrowid)
 
     def _chat_message(self, cur, homework_id, student_id, user, body):
         thread_id=self._thread(cur,homework_id,student_id)
         cur.execute("INSERT INTO homework_chat_messages (thread_id,sender_role,sender_id,kind,body) VALUES (%s,%s,%s,'user',%s)", (thread_id,user['role'],user['id'],body[:1000]))
-        queue_thread_event(cur,thread_id,'message.created',cur.lastrowid)
 
     def file_url(self, user, submission_id, draft=False, download=False):
         conn=get_db_connection()
