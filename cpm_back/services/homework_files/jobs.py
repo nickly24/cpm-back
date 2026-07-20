@@ -91,22 +91,9 @@ def _run_one(app):
         return True
     finally:
         if lock_held:
-            release_cursor = None
             try:
-                release_cursor = conn.cursor()
-                release_cursor.execute("SELECT RELEASE_LOCK('cpm_homework_pdf_runner')")
-                # SELECT always produces a result set. Consume it before the
-                # pooled connection is reset, otherwise the pool is poisoned
-                # with `Unread result found` for subsequent HTTP requests.
-                release_cursor.fetchone()
-            except Exception:
-                pass
-            finally:
-                if release_cursor is not None:
-                    try:
-                        release_cursor.close()
-                    except Exception:
-                        pass
+                cur = conn.cursor(); cur.execute("SELECT RELEASE_LOCK('cpm_homework_pdf_runner')")
+            except Exception: pass
         close_db_connection(conn)
 
 

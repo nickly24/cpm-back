@@ -43,13 +43,7 @@ from .blueprints import (
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
 
 _LOG_MOSCOW_TZ = ZoneInfo('Europe/Moscow')
-
-
-def _moscow_log_converter(timestamp):
-    return datetime.fromtimestamp(timestamp, _LOG_MOSCOW_TZ).timetuple()
-
-
-logging.Formatter.converter = staticmethod(_moscow_log_converter)
+logging.Formatter.converter = lambda timestamp: datetime.fromtimestamp(timestamp, _LOG_MOSCOW_TZ).timetuple()
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
