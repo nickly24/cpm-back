@@ -312,15 +312,7 @@ def get_test_session_by_student_and_test(student_id, test_id):
     return None
 
 
-def _recompute_answer(existing_answer, question):
-    return scoring.recompute_answer(existing_answer, question)
-
-
-def _placeholder_answer_for_new_question(question):
-    return scoring.placeholder_answer_for_new_question(question)
-
-
-def recalc_test_sessions(test_id):
+def recalc_test_sessions(test_id, *, exclude_question_ids=None):
     db = get_mongo_db()
     tests_collection = db.tests
     sessions_collection = db.test_sessions
@@ -328,28 +320,28 @@ def recalc_test_sessions(test_id):
     if not test:
         return {"updated": 0, "sessions": 0, "error": "Test not found"}
     questions = test.get("questions", [])
-    question_by_id = {q.get("questionId"): q for q in questions}
     current_title = test.get("title")
+    exclude = set(exclude_question_ids or ())
     updated_count = 0
     total_sessions = 0
     for session in sessions_collection.find({"testId": test_id}):
         total_sessions += 1
-        answers = session.get("answers", [])
-        answer_by_qid = {a.get("questionId"): a for a in answers if "questionId" in a}
-        new_answers = []
-        for a in answers:
-            qid = a.get("questionId")
-            q_spec = question_by_id.get(qid)
-            if q_spec:
-                new_answers.append(_recompute_answer(a, q_spec))
-        for q in questions:
-            qid = q.get("questionId")
-            if qid not in answer_by_qid:
-                new_answers.append(_placeholder_answer_for_new_question(q))
-        earned_points = sum(int(a.get("points", 0)) for a in new_answers)
-        max_points = sum(int(q.get("points", 0)) for q in questions)
-        new_score = round((earned_points / max_points) * 100, 2) if max_points > 0 else 0
-        update_doc = {"answers": new_answers, "score": int(new_score), "testTitle": current_title or session.get("testTitle")}
+        new_answers, new_score = scoring.rebuild_scoped_session_answers(
+            session.get("answers", []),
+            questions,
+            exclude_question_ids=exclude,
+        )
+        new_title = current_title or session.get("testTitle")
+        prev_answers = session.get("answers") or []
+        prev_score = session.get("score")
+        prev_title = session.get("testTitle")
+        if (
+            new_answers == prev_answers
+            and int(prev_score or 0) == int(new_score)
+            and prev_title == new_title
+        ):
+            continue
+        update_doc = {"answers": new_answers, "score": int(new_score), "testTitle": new_title}
         if sessions_collection.update_one({"_id": session["_id"]}, {"$set": update_doc}).modified_count:
             updated_count += 1
     return {"updated": updated_count, "sessions": total_sessions}

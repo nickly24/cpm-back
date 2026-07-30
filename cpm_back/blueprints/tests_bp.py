@@ -27,6 +27,10 @@ from cpm_back.services.exam.create_test_session import (
     get_test_session_by_student_and_test,
     recalc_test_sessions,
 )
+from cpm_back.services.exam.test_recalc_policy import (
+    decide_session_recalc,
+    decision_to_api_dict,
+)
 from cpm_back.services.exam.get_external_tests import (
     get_external_tests_with_results_by_student,
     get_all_external_tests_by_direction_for_admin,
@@ -270,6 +274,7 @@ def update(test_id, current_user=None):
     test_data = request.get_json() or {}
     success = update_test(test_id, test_data)
     if success:
+        updated_test = None
         try:
             updated_test = get_test_by_id(test_id)
             if updated_test:
@@ -281,7 +286,17 @@ def update(test_id, current_user=None):
                 )
         except Exception as exc:
             print(f"[audit] failed to log test update changes for {test_id}: {exc}")
-        recalc_stats = recalc_test_sessions(test_id)
+        if updated_test is None:
+            updated_test = get_test_by_id(test_id) or existing_test
+        decision = decide_session_recalc(existing_test, updated_test)
+        if decision.needs_recalc:
+            recalc_stats = recalc_test_sessions(
+                test_id,
+                exclude_question_ids=decision.exclude_question_ids,
+            )
+        else:
+            recalc_stats = {"updated": 0, "sessions": 0, "skipped": True}
+        recalc_stats["decision"] = decision_to_api_dict(decision)
         return jsonify({
             "message": "Test updated successfully",
             "testId": test_id,

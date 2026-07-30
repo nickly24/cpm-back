@@ -89,3 +89,34 @@ def score_attempt_answers(questions, question_order, raw_answers_by_qid):
     max_points = sum(int(q.get("points", 0)) for q in questions)
     score = round((earned / max_points) * 100, 2) if max_points > 0 else 0
     return scored, int(score)
+
+
+def rebuild_scoped_session_answers(session_answers, questions, exclude_question_ids=None):
+    """
+    Пересчёт ответов старой session по текущему определению теста (ТЗ):
+    - удалённые / exclude (type-change) вопросы выбрасываются;
+    - оставшиеся пересчитываются;
+    - новые вопросы теста НЕ добавляются (не раздувают max);
+    - score = int(round(earned / max_of_remaining * 100, 2)).
+    """
+    exclude = set(exclude_question_ids or ())
+    question_by_id = {q.get("questionId"): q for q in (questions or [])}
+    new_answers = []
+    for answer in session_answers or []:
+        if not isinstance(answer, dict):
+            continue
+        qid = answer.get("questionId")
+        if qid is None or qid in exclude:
+            continue
+        question = question_by_id.get(qid)
+        if not question:
+            continue
+        new_answers.append(recompute_answer(answer, question))
+    earned = sum(int(a.get("points", 0)) for a in new_answers)
+    max_points = sum(
+        int(question_by_id[a.get("questionId")].get("points", 0))
+        for a in new_answers
+        if a.get("questionId") in question_by_id
+    )
+    score = round((earned / max_points) * 100, 2) if max_points > 0 else 0
+    return new_answers, int(score)
