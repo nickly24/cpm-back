@@ -9,6 +9,7 @@
   teacher_name — преподаватель
   location — локация (вуз и т.п.)
   classroom — аудитория (цифры и буквы)
+  color — цвет карточки (#RRGGBB)
   is_changed — галочка «расписание изменилось»
   is_public / school_id — публичное или внутришкольное
 
@@ -28,6 +29,8 @@ DATE_FMT = "%Y-%m-%d"
 TIME_FMT = "%H:%M"
 # Аудитория: цифры, латиница/кириллица, пробел, дефис (напр. "301А", "А-12")
 CLASSROOM_RE = re.compile(r"^[0-9A-Za-zА-Яа-яЁё][0-9A-Za-zА-Яа-яЁё\-\s]*$")
+COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+DEFAULT_LESSON_COLOR = "#5B8DEF"
 
 
 class ScheduleManager:
@@ -182,6 +185,18 @@ class ScheduleManager:
                 "error": "Поле 'classroom' должно содержать цифры и буквы (допустим дефис/пробел)",
             }
 
+        raw_color = lesson_data.get("color")
+        if not raw_color or not isinstance(raw_color, str):
+            color = DEFAULT_LESSON_COLOR
+        else:
+            color = raw_color.strip()
+            if not COLOR_RE.match(color):
+                return {
+                    "status": False,
+                    "error": "Поле 'color' должно быть в формате #RRGGBB",
+                }
+            color = color.upper()
+
         is_public = self._parse_bool(lesson_data.get("is_public"), default=True)
         visibility = self._validate_visibility(is_public, lesson_data.get("school_id"))
         if not visibility.get("status"):
@@ -199,6 +214,7 @@ class ScheduleManager:
                 "teacher_name": lesson_data["teacher_name"].strip(),
                 "location": lesson_data["location"].strip(),
                 "classroom": classroom,
+                "color": color,
                 "is_changed": is_changed,
                 "is_public": is_public,
                 "school_id": visibility["school_id"],
