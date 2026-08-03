@@ -11,6 +11,8 @@
   classroom — аудитория (цифры и буквы)
   color — цвет карточки (#RRGGBB)
   is_changed — галочка «расписание изменилось»
+  is_in_person — очно (true) / дистанционно (false)
+  is_for_all — все студенты (true) / частично (false)
   is_public / school_id — публичное или внутришкольное
 
 Публичные занятия видны всем; школьные — только студентам своей школы.
@@ -203,6 +205,8 @@ class ScheduleManager:
             return visibility
 
         is_changed = self._parse_bool(lesson_data.get("is_changed"), default=False)
+        is_in_person = self._parse_bool(lesson_data.get("is_in_person"), default=True)
+        is_for_all = self._parse_bool(lesson_data.get("is_for_all"), default=True)
 
         return {
             "status": True,
@@ -216,6 +220,8 @@ class ScheduleManager:
                 "classroom": classroom,
                 "color": color,
                 "is_changed": is_changed,
+                "is_in_person": is_in_person,
+                "is_for_all": is_for_all,
                 "is_public": is_public,
                 "school_id": visibility["school_id"],
             },
