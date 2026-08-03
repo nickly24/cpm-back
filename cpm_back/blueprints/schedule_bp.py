@@ -50,6 +50,17 @@ def add_lesson(current_user=None):
     return _schedule_result(result)
 
 
+@schedule_bp.route("/schedule/bulk", methods=["POST"])
+@require_role("admin")
+def bulk_save_schedule(current_user=None):
+    data = request.get_json()
+    if not data:
+        return jsonify({"status": False, "error": "Данные не предоставлены"}), 400
+    manager = ScheduleManager()
+    result = manager.bulk_save(data)
+    return _schedule_result(result)
+
+
 @schedule_bp.route("/schedule/<lesson_id>", methods=["PUT"])
 @require_role("admin")
 def edit_lesson(lesson_id, current_user=None):

@@ -356,5 +356,177 @@ class ScheduleManager:
         except Exception as e:
             return {"status": False, "error": str(e)}
 
+    @staticmethod
+    def _times_overlap(a_start: str, a_end: str, b_start: str, b_end: str) -> bool:
+        return a_start < b_end and a_end > b_start
+
+    @staticmethod
+    def _same_visibility(a: Dict, b: Dict) -> bool:
+        if bool(a.get("is_public")) != bool(b.get("is_public")):
+            return False
+        if a.get("is_public"):
+            return True
+        return a.get("school_id") == b.get("school_id")
+
+    def bulk_save(self, data: Dict) -> Dict:
+        """
+        Пакетное сохранение: creates / updates / deletes.
+        Сначала полная валидация и проверка конфликтов, затем применение.
+        """
+        try:
+            get_mongo_client().admin.command("ping")
+
+            creates_raw = data.get("creates") or []
+            updates_raw = data.get("updates") or []
+            deletes_raw = data.get("deletes") or []
+
+            if not isinstance(creates_raw, list) or not isinstance(updates_raw, list) or not isinstance(deletes_raw, list):
+                return {"status": False, "error": "creates, updates и deletes должны быть массивами"}
+
+            if not creates_raw and not updates_raw and not deletes_raw:
+                return {"status": False, "error": "Нет изменений для сохранения"}
+
+            delete_ids: list[ObjectId] = []
+            delete_id_strs: set[str] = set()
+            for item in deletes_raw:
+                lesson_id = item if isinstance(item, str) else (item.get("_id") if isinstance(item, dict) else None)
+                if not lesson_id or not ObjectId.is_valid(str(lesson_id)):
+                    return {"status": False, "error": f"Некорректный ID в deletes: {lesson_id}"}
+                oid = ObjectId(str(lesson_id))
+                delete_ids.append(oid)
+                delete_id_strs.add(str(oid))
+
+            prepared_updates: list[tuple[ObjectId, Dict]] = []
+            update_id_strs: set[str] = set()
+            for item in updates_raw:
+                if not isinstance(item, dict):
+                    return {"status": False, "error": "Каждый элемент updates должен быть объектом"}
+                lesson_id = item.get("_id")
+                if not lesson_id or not ObjectId.is_valid(str(lesson_id)):
+                    return {"status": False, "error": f"Некорректный _id в updates: {lesson_id}"}
+                oid = ObjectId(str(lesson_id))
+                oid_str = str(oid)
+                if oid_str in delete_id_strs:
+                    return {"status": False, "error": f"Занятие {oid_str} нельзя и обновить, и удалить"}
+                if oid_str in update_id_strs:
+                    return {"status": False, "error": f"Дублирующий _id в updates: {oid_str}"}
+                existing = self.collection.find_one({"_id": oid})
+                if not existing:
+                    return {"status": False, "error": f"Занятие для обновления не найдено: {oid_str}"}
+                normalized = self._normalize_lesson_payload(item)
+                if not normalized.get("status"):
+                    return {
+                        "status": False,
+                        "error": f"Ошибка в updates ({oid_str}): {normalized.get('error')}",
+                    }
+                prepared_updates.append((oid, normalized["payload"]))
+                update_id_strs.add(oid_str)
+
+            prepared_creates: list[Dict] = []
+            for index, item in enumerate(creates_raw):
+                if not isinstance(item, dict):
+                    return {"status": False, "error": "Каждый элемент creates должен быть объектом"}
+                normalized = self._normalize_lesson_payload(item)
+                if not normalized.get("status"):
+                    return {
+                        "status": False,
+                        "error": f"Ошибка в creates[{index}]: {normalized.get('error')}",
+                    }
+                prepared_creates.append(normalized["payload"])
+
+            # Виртуальный снимок после deletes/updates/creates для проверки конфликтов
+            exclude_from_db = set(delete_ids) | {oid for oid, _ in prepared_updates}
+            batch_dates = {
+                payload["date"]
+                for _, payload in prepared_updates
+            } | {
+                payload["date"] for payload in prepared_creates
+            }
+            remaining_db: list[Dict] = []
+            if batch_dates:
+                db_query: Dict[str, Any] = {"date": {"$in": list(batch_dates)}}
+                if exclude_from_db:
+                    db_query["_id"] = {"$nin": list(exclude_from_db)}
+                remaining_db = list(self.collection.find(db_query))
+
+            virtual: list[Dict] = []
+            for doc in remaining_db:
+                virtual.append({
+                    "date": doc["date"],
+                    "start_time": doc["start_time"],
+                    "end_time": doc["end_time"],
+                    "is_public": doc.get("is_public", True),
+                    "school_id": doc.get("school_id"),
+                    "lesson_name": doc.get("lesson_name", ""),
+                    "_label": f"БД:{doc.get('lesson_name', '')}",
+                })
+            for oid, payload in prepared_updates:
+                virtual.append({
+                    **payload,
+                    "_label": f"update:{oid}",
+                })
+            for index, payload in enumerate(prepared_creates):
+                virtual.append({
+                    **payload,
+                    "_label": f"create[{index}]:{payload.get('lesson_name', '')}",
+                })
+
+            for i in range(len(virtual)):
+                for j in range(i + 1, len(virtual)):
+                    a = virtual[i]
+                    b = virtual[j]
+                    if a["date"] != b["date"]:
+                        continue
+                    if not self._same_visibility(a, b):
+                        continue
+                    if self._times_overlap(
+                        a["start_time"], a["end_time"], b["start_time"], b["end_time"]
+                    ):
+                        return {
+                            "status": False,
+                            "error": (
+                                f"Конфликт времени {a['date']} "
+                                f"{a['start_time']}–{a['end_time']} и "
+                                f"{b['start_time']}–{b['end_time']} "
+                                f"({a.get('lesson_name', '')} / {b.get('lesson_name', '')})"
+                            ),
+                        }
+
+            # Применение
+            deleted_count = 0
+            if delete_ids:
+                delete_result = self.collection.delete_many({"_id": {"$in": delete_ids}})
+                deleted_count = delete_result.deleted_count
+
+            updated_count = 0
+            now = datetime.now()
+            for oid, payload in prepared_updates:
+                payload = {**payload, "updated_at": now}
+                result = self.collection.update_one({"_id": oid}, {"$set": payload})
+                if result.matched_count:
+                    updated_count += 1
+
+            created_ids: list[str] = []
+            if prepared_creates:
+                docs = []
+                for payload in prepared_creates:
+                    docs.append({
+                        **payload,
+                        "created_at": now,
+                        "updated_at": now,
+                    })
+                insert_result = self.collection.insert_many(docs)
+                created_ids = [str(x) for x in insert_result.inserted_ids]
+
+            return {
+                "status": True,
+                "message": "Расписание успешно сохранено",
+                "created_ids": created_ids,
+                "updated_count": updated_count,
+                "deleted_count": deleted_count,
+            }
+        except Exception as e:
+            return {"status": False, "error": str(e)}
+
     def close_connection(self):
         pass  # shared client, no per-instance close
