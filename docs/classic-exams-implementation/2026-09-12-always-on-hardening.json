@@ -1,0 +1,320 @@
+{
+  "checkedAt": "2026-09-12 10:51:29 UTC",
+  "codeCommit": "5096ec6f54f06cbcc08a33363caa0bf1f265bc07",
+  "productionDeploymentVerified": true,
+  "productionHealth": {
+    "service": "cpm-back",
+    "status": "ok",
+    "examMode": "always_on"
+  },
+  "runtimeRolloutFlagsRemoved": true,
+  "appliedMigrations": [
+    "026_exam_legacy_hardening.sql",
+    "027_outside_exam_text_unicode.sql"
+  ],
+  "backup": {
+    "outsideRepository": true,
+    "fileMode": "0600",
+    "directoryMode": "0700",
+    "authenticTargetTables": 33,
+    "restoredAndComparedLocally": true,
+    "localForeignKeysEnabled": true,
+    "accountCredentialsCopied": false
+  },
+  "tests": {
+    "backendTotal": 177,
+    "passed": 177,
+    "skipped": 0,
+    "includesLocalMySQL": true,
+    "scope": "tracked tests at codeCommit, excluding unrelated uncommitted homework tests",
+    "fullWorkspaceTestsPassed": 184
+  },
+  "integrity": {
+    "verifiedTables": 33,
+    "allTargetRowsPreserved": true,
+    "resultsPreserved": 1357,
+    "ratingsPreserved": 314,
+    "directionsLinked": 5,
+    "migrationFiles": 14,
+    "migrationSteps": 50,
+    "checkConstraints": [
+      {
+        "CONSTRAINT_NAME": "ck_exam_sessions_grade",
+        "CHECK_CLAUSE": "((`points` between 0 and 5) and (`points` = floor(`points`)))"
+      },
+      {
+        "CONSTRAINT_NAME": "ck_exam_sessions_nonnegative",
+        "CHECK_CLAUSE": "((`val` between 0 and 9999999999.99) and (`val` = round(`val`,2)))"
+      },
+      {
+        "CONSTRAINT_NAME": "ck_exams_type",
+        "CHECK_CLAUSE": "(`exam_type` in (_utf8mb4\\'outside_lms\\',_utf8mb4\\'classic\\'))"
+      }
+    ],
+    "activeRatingJobs": 0,
+    "gradesSum": 5782,
+    "pointsSum": "12577.00"
+  },
+  "schemaVerification": {
+    "mode": "check",
+    "phase": "all",
+    "steps": [
+      {
+        "migration": "015_exam_core.sql",
+        "step": "exam_columns",
+        "status": "verified"
+      },
+      {
+        "migration": "015_exam_core.sql",
+        "step": "exam_nullable_fields",
+        "status": "verified"
+      },
+      {
+        "migration": "015_exam_core.sql",
+        "step": "exam_indexes",
+        "status": "verified"
+      },
+      {
+        "migration": "015_exam_core.sql",
+        "step": "exam_admin_commands",
+        "status": "verified"
+      },
+      {
+        "migration": "016_outside_lms_results.sql",
+        "step": "outside_result_metadata",
+        "status": "verified"
+      },
+      {
+        "migration": "016_outside_lms_results.sql",
+        "step": "outside_exam_result_import_sessions",
+        "status": "verified"
+      },
+      {
+        "migration": "017_classic_exam_settings.sql",
+        "step": "classic_exam_settings",
+        "status": "verified"
+      },
+      {
+        "migration": "018_classic_exam_question_bank.sql",
+        "step": "classic_exam_parts",
+        "status": "verified"
+      },
+      {
+        "migration": "018_classic_exam_question_bank.sql",
+        "step": "classic_exam_questions",
+        "status": "verified"
+      },
+      {
+        "migration": "018_classic_exam_question_bank.sql",
+        "step": "settings_part_reference",
+        "status": "verified"
+      },
+      {
+        "migration": "018_classic_exam_question_bank.sql",
+        "step": "classic_exam_question_import_sessions",
+        "status": "verified"
+      },
+      {
+        "migration": "019_classic_exam_scoring.sql",
+        "step": "classic_exam_grade_thresholds",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_commissions",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_commission_members",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_assignments",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_assignment_members",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_student_privileges",
+        "status": "verified"
+      },
+      {
+        "migration": "020_classic_exam_assignments.sql",
+        "step": "classic_exam_assignment_import_sessions",
+        "status": "verified"
+      },
+      {
+        "migration": "021_classic_exam_attempts.sql",
+        "step": "classic_exam_definition_versions",
+        "status": "verified"
+      },
+      {
+        "migration": "021_classic_exam_attempts.sql",
+        "step": "classic_exam_definition_questions",
+        "status": "verified"
+      },
+      {
+        "migration": "021_classic_exam_attempts.sql",
+        "step": "classic_exam_attempts",
+        "status": "verified"
+      },
+      {
+        "migration": "021_classic_exam_attempts.sql",
+        "step": "classic_exam_attempt_members",
+        "status": "verified"
+      },
+      {
+        "migration": "021_classic_exam_attempts.sql",
+        "step": "classic_exam_attempt_commands",
+        "status": "verified"
+      },
+      {
+        "migration": "022_classic_exam_presented_questions.sql",
+        "step": "classic_exam_attempt_part_progress",
+        "status": "verified"
+      },
+      {
+        "migration": "022_classic_exam_presented_questions.sql",
+        "step": "classic_exam_presented_questions",
+        "status": "verified"
+      },
+      {
+        "migration": "022_classic_exam_presented_questions.sql",
+        "step": "classic_exam_attempt_question_usage",
+        "status": "verified"
+      },
+      {
+        "migration": "022_classic_exam_presented_questions.sql",
+        "step": "attempt_current_pointers",
+        "status": "verified"
+      },
+      {
+        "migration": "023_classic_exam_voting.sql",
+        "step": "classic_exam_vote_rounds",
+        "status": "verified"
+      },
+      {
+        "migration": "023_classic_exam_voting.sql",
+        "step": "classic_exam_votes",
+        "status": "verified"
+      },
+      {
+        "migration": "023_classic_exam_voting.sql",
+        "step": "presented_consensus",
+        "status": "verified"
+      },
+      {
+        "migration": "024_classic_exam_results.sql",
+        "step": "attempt_result_columns",
+        "status": "verified"
+      },
+      {
+        "migration": "024_classic_exam_results.sql",
+        "step": "classic_exam_appeals",
+        "status": "verified"
+      },
+      {
+        "migration": "024_classic_exam_results.sql",
+        "step": "result_grade_check",
+        "status": "verified"
+      },
+      {
+        "migration": "025_rating_exam_invalidation.sql",
+        "step": "rating_source_state",
+        "status": "verified"
+      },
+      {
+        "migration": "025_rating_exam_invalidation.sql",
+        "step": "rating_source_seed",
+        "status": "verified"
+      },
+      {
+        "migration": "025_rating_exam_invalidation.sql",
+        "step": "published_rating_details",
+        "status": "verified"
+      },
+      {
+        "migration": "025_rating_exam_invalidation.sql",
+        "step": "rating_worker_lease",
+        "status": "verified"
+      },
+      {
+        "migration": "025_rating_exam_invalidation.sql",
+        "step": "rating_recalc_staging",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "outside_result_value_guards",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "outside_result_types",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "outside_result_unique",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "outside_result_constraints",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "rating_student_unique",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "exam_direction_required",
+        "status": "verified"
+      },
+      {
+        "migration": "026_exam_legacy_hardening.sql",
+        "step": "exam_domain_constraints",
+        "status": "verified"
+      },
+      {
+        "migration": "027_outside_exam_text_unicode.sql",
+        "step": "outside_examiner_full_unicode",
+        "status": "verified"
+      },
+      {
+        "migration": "028_exam_retention_indexes.sql",
+        "step": "outside_import_expiry_index",
+        "status": "verified"
+      },
+      {
+        "migration": "028_exam_retention_indexes.sql",
+        "step": "question_import_expiry_index",
+        "status": "verified"
+      },
+      {
+        "migration": "028_exam_retention_indexes.sql",
+        "step": "assignment_import_expiry_index",
+        "status": "verified"
+      },
+      {
+        "migration": "028_exam_retention_indexes.sql",
+        "step": "admin_command_expiry_index",
+        "status": "verified"
+      }
+    ],
+    "businessRowsDeleted": 0,
+    "serverVersion": "8.0.22-13",
+    "directionsLinked": 0,
+    "fullyApplied": true
+  },
+  "productionTestDataCreated": false,
+  "ratingRecalculationTriggered": false
+}
