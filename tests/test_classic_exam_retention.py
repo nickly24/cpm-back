@@ -16,15 +16,18 @@ maintenance = importlib.import_module(fixture.DOMAIN + ".maintenance")
 
 
 class RetentionWorkerTests(unittest.TestCase):
-    def test_disabled_worker_never_starts(self):
+    def test_worker_starts_without_rollout_configuration(self):
         app = Flask(__name__)
         with patch.object(maintenance.threading, "Thread") as thread:
-            self.assertIsNone(maintenance.start_retention_worker(app))
-            thread.assert_not_called()
+            handle = maintenance.start_retention_worker(app)
+            self.assertIsNotNone(handle)
+            thread.assert_called_once()
+            thread.return_value.start.assert_called_once()
+            maintenance.stop_retention_worker(app)
 
     def test_start_is_idempotent_and_stop_is_explicit(self):
         app = Flask(__name__)
-        app.config["EXAMS_V2_ENABLED"] = True
+        app.config["EXAMS_V2_ENABLED"] = False
         with patch.object(maintenance.threading, "Thread") as thread:
             thread.return_value.is_alive.return_value = True
             first = maintenance.start_retention_worker(app)
@@ -32,6 +35,24 @@ class RetentionWorkerTests(unittest.TestCase):
             self.assertEqual(thread.call_count, 1)
             maintenance.stop_retention_worker(app)
             self.assertTrue(first["stop"].is_set())
+
+    def test_running_worker_ignores_stale_false_flag(self):
+        app = Flask(__name__)
+        app.config["EXAMS_V2_ENABLED"] = False
+        with patch.object(maintenance.threading, "Thread") as thread, patch.object(
+            maintenance.threading, "Event"
+        ) as event, patch(
+            "cpm_back.db.mysql_pool.get_db_connection"
+        ) as connection, patch(
+            "cpm_back.db.mysql_pool.close_db_connection"
+        ) as close, patch.object(
+            maintenance, "sweep_expired", return_value={"deleted": {}, "batches": 0}
+        ) as sweep:
+            event.return_value.is_set.side_effect = [False, True]
+            maintenance.start_retention_worker(app)
+            thread.call_args.kwargs["target"]()
+            sweep.assert_called_once()
+            close.assert_called_once_with(connection.return_value)
 
 
 @unittest.skipUnless(

@@ -1,6 +1,6 @@
 """Versioned administrative exam API. No I/O at import time."""
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, request
 from cpm_back.services.exams import admin
 from cpm_back.services.exams.common import (
     endpoint,
@@ -73,44 +73,25 @@ def admin_mutation(actor, exam_id, payload, action, replay, kind=None, status=20
 def capabilities(actor):
     from cpm_back.auth.admin_permissions import has_permission
 
-    enabled = current_app.config.get("EXAMS_V2_ENABLED", False)
     can_view = actor["role"] in ADMIN and has_permission(actor, "exams", "view")
     can_edit = actor["role"] in ADMIN and has_permission(actor, "exams", "edit")
     return {
         "apiVersion": "v2",
-        "canReadAdminExams": bool(enabled and can_view),
-        "canManageOutside": bool(enabled and can_edit),
-        "canCreateClassic": bool(
-            enabled
-            and can_edit
-            and current_app.config.get("CLASSIC_EXAM_CREATION_ENABLED", False)
-        ),
-        "canConductClassic": bool(
-            actor["role"] == "examinator"
-            and current_app.config.get("CLASSIC_EXAM_COMMANDS_ENABLED", False)
-        ),
-        "canReadStudentResults": bool(
-            actor["role"] == "student"
-            and current_app.config.get("STUDENT_EXAM_RESULTS_V2_ENABLED", False)
-        ),
+        "canReadAdminExams": bool(can_view),
+        "canManageOutside": bool(can_edit),
+        "canCreateClassic": bool(can_edit),
+        "canConductClassic": actor["role"] == "examinator",
+        "canReadStudentResults": actor["role"] == "student",
     }
 
 
 @exams_v2_bp.route("", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def exams_collection(actor):
     if request.method == "GET":
         with transaction() as db:
             return admin.list_exams(db, request.args)
     payload = body()
-    if payload.get("examType") == "classic" and not current_app.config.get(
-        "CLASSIC_EXAM_CREATION_ENABLED", False
-    ):
-        fail(
-            "exam_temporarily_unavailable",
-            "Создание классических экзаменов временно отключено",
-            503,
-        )
 
     def action(db, exam):
         result = admin.create_exam(db, payload)
@@ -127,14 +108,14 @@ def exams_collection(actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def exam_detail(exam_id, actor):
     with transaction() as db:
         return {"exam": admin.get_exam(db, exam_id)}
 
 
 @exams_v2_bp.patch("/<int:exam_id>/direction")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def exam_direction(exam_id, actor):
     payload = body()
     return admin_mutation(
@@ -150,7 +131,7 @@ def exam_direction(exam_id, actor):
 
 
 @exams_v2_bp.get("/lookups/<kind>")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def account_lookup(kind, actor):
     if kind not in ("students", "examinators"):
         fail("not_found", status=404)
@@ -161,7 +142,7 @@ def account_lookup(kind, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/config", methods=["GET", "PATCH"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_config(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -179,7 +160,7 @@ def classic_config(exam_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/scoring", methods=["GET", "PUT"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_scoring(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -197,7 +178,7 @@ def classic_scoring(exam_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/parts", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def parts_collection(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -223,7 +204,7 @@ def parts_collection(exam_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/classic/parts/<int:part_id>", methods=["PATCH", "DELETE"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def part_detail(exam_id, part_id, actor):
     payload = (
         body()
@@ -288,7 +269,7 @@ def part_preview_data(db, exam_id, part_id):
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/parts/<int:part_id>/delete-preview")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def part_delete_preview(exam_id, part_id, actor):
     with transaction() as db:
         lock_exam(db, exam_id, "classic", True)
@@ -305,7 +286,7 @@ def part_delete_preview(exam_id, part_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/questions", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def questions_collection(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -331,7 +312,7 @@ def questions_collection(exam_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/classic/questions/<int:question_id>", methods=["PATCH", "DELETE"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def question_detail(exam_id, question_id, actor):
     payload = (
         body()
@@ -370,7 +351,7 @@ def question_detail(exam_id, question_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/commissions", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def commissions_collection(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -410,7 +391,7 @@ def commissions_collection(exam_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/classic/commissions/<int:commission_id>", methods=["PUT", "DELETE"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def commission_detail(exam_id, commission_id, actor):
     payload = (
         body()
@@ -458,7 +439,7 @@ def commission_detail(exam_id, commission_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/classic/assignments", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def assignments_collection(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -489,7 +470,7 @@ def assignments_collection(exam_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/classic/assignments/<int:assignment_id>", methods=["PUT", "DELETE"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def assignment_detail(exam_id, assignment_id, actor):
     payload = (
         body()
@@ -541,7 +522,7 @@ def assignment_detail(exam_id, assignment_id, actor):
     "/<int:exam_id>/classic/students/<int:student_id>/privilege",
     methods=["GET", "PUT", "DELETE"],
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def student_privilege(exam_id, student_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -586,7 +567,7 @@ def student_privilege(exam_id, student_id, actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/privileges")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def privileges_collection(exam_id, actor):
     with transaction() as db:
         lock_exam(db, exam_id, "classic", True)
@@ -621,7 +602,7 @@ def privileges_collection(exam_id, actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/readiness")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_readiness(exam_id, actor):
     with transaction() as db:
         lock_exam(db, exam_id, "classic", True)
@@ -629,7 +610,7 @@ def classic_readiness(exam_id, actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/assignments/<int:assignment_id>/readiness")
-@endpoint(*ADMIN, "examinator", capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN, "examinator")
 def assignment_readiness(exam_id, assignment_id, actor):
     with transaction() as db:
         lock_exam(db, exam_id, "classic", True)
@@ -642,7 +623,7 @@ def assignment_readiness(exam_id, assignment_id, actor):
 
 
 @exams_v2_bp.patch("/<int:exam_id>/outside-lms")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def outside_config(exam_id, actor):
     payload = body()
 
@@ -671,7 +652,7 @@ def outside_config(exam_id, actor):
 
 
 @exams_v2_bp.route("/<int:exam_id>/outside-lms/results", methods=["GET", "POST"])
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def outside_results(exam_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -700,7 +681,7 @@ def outside_results(exam_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/outside-lms/results/<int:result_id>", methods=["PATCH", "DELETE"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def outside_result_detail(exam_id, result_id, actor):
     payload = (
         body()
@@ -739,7 +720,7 @@ def outside_result_detail(exam_id, result_id, actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>/overview")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def exam_overview(exam_id, actor):
     with transaction() as db:
         lock_exam(db, exam_id, shared=True)
@@ -808,28 +789,28 @@ from cpm_back.services.exams import results
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/results")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_results(exam_id, actor):
     with transaction() as db:
         return results.list_results(db, exam_id, request.args)
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/attempts")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_attempts(exam_id, actor):
     with transaction() as db:
         return results.list_attempts(db, exam_id, request.args)
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/attempts/<int:attempt_id>")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_attempt_detail(exam_id, attempt_id, actor):
     with transaction() as db:
         return {"attempt": results.attempt_detail(db, exam_id, attempt_id, actor)}
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/attempts/<int:attempt_id>/questions")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_attempt_questions(exam_id, attempt_id, actor):
     with transaction() as db:
         return results.questions(db, attempt_id, request.args, actor, exam_id)
@@ -838,7 +819,7 @@ def classic_attempt_questions(exam_id, attempt_id, actor):
 @exams_v2_bp.get(
     "/<int:exam_id>/classic/attempts/<int:attempt_id>/questions/<int:presented_id>/rounds"
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_attempt_rounds(exam_id, attempt_id, presented_id, actor):
     with transaction() as db:
         return results.rounds(
@@ -849,7 +830,7 @@ def classic_attempt_rounds(exam_id, attempt_id, presented_id, actor):
 @exams_v2_bp.route(
     "/<int:exam_id>/classic/attempts/<int:attempt_id>/appeals", methods=["GET", "POST"]
 )
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint(*ADMIN, mutation=True)
 def classic_attempt_appeals(exam_id, attempt_id, actor):
     if request.method == "GET":
         with transaction() as db:
@@ -886,7 +867,7 @@ def classic_attempt_appeals(exam_id, attempt_id, actor):
 
 
 @exams_v2_bp.post("/<int:exam_id>/classic/students/<int:student_id>/retake")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint(*ADMIN, mutation=True)
 def classic_student_retake(exam_id, student_id, actor):
     payload = body()
 
@@ -908,7 +889,7 @@ def classic_student_retake(exam_id, student_id, actor):
 
 
 @exams_v2_bp.get("/<int:exam_id>/classic/students/<int:student_id>/delete-preview")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def classic_history_delete_preview(exam_id, student_id, actor):
     with transaction() as db:
         return results.history_delete_preview(db, exam_id, student_id, actor)
@@ -988,19 +969,19 @@ def _destructive_command(actor, exam_id, student_id=None):
 
 
 @exams_v2_bp.delete("/<int:exam_id>/classic/students/<int:student_id>/history")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint(*ADMIN, mutation=True)
 def classic_history_delete(exam_id, student_id, actor):
     return _destructive_command(actor, exam_id, student_id)
 
 
 @exams_v2_bp.get("/<int:exam_id>/delete-preview")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED")
+@endpoint(*ADMIN)
 def full_exam_delete_preview(exam_id, actor):
     with transaction() as db:
         return results.exam_delete_preview(db, exam_id, actor)
 
 
 @exams_v2_bp.delete("/<int:exam_id>")
-@endpoint(*ADMIN, capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint(*ADMIN, mutation=True)
 def full_exam_delete(exam_id, actor):
     return _destructive_command(actor, exam_id)

@@ -15,14 +15,14 @@ def payload():
 
 
 @examiner_exams_bp.get("/exams")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def exams_list(actor):
     with transaction() as db:
         return lifecycle.examiner_exams(db, request.args, actor)
 
 
 @examiner_exams_bp.get("/exams/<int:exam_id>/students")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def students_list(exam_id, actor):
     with transaction() as db:
         return lifecycle.examiner_students(db, exam_id, request.args, actor)
@@ -31,7 +31,7 @@ def students_list(exam_id, actor):
 @examiner_exams_bp.post(
     "/exams/<int:exam_id>/assignments/<int:assignment_id>/attempts/ensure"
 )
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def attempt_ensure(exam_id, assignment_id, actor):
     data, key = payload(), idempotency_key()
     with transaction() as db:
@@ -39,14 +39,14 @@ def attempt_ensure(exam_id, assignment_id, actor):
 
 
 @examiner_exams_bp.get("/attempts/<int:attempt_id>")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def attempt_detail(attempt_id, actor):
     with transaction() as db:
         return {"attempt": lifecycle.attempt_state(db, attempt_id, actor)}
 
 
 @examiner_exams_bp.post("/attempts/<int:attempt_id>/<name>")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def attempt_command(attempt_id, name, actor):
     if name not in ("ready", "start", "vote", "next-question", "replace-question"):
         fail("not_found", status=404)
@@ -56,7 +56,7 @@ def attempt_command(attempt_id, name, actor):
 
 
 @examiner_exams_bp.get("/attempts/<int:attempt_id>/questions")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def attempt_questions(attempt_id, actor):
     from cpm_back.services.exams.results import questions
 
@@ -65,7 +65,7 @@ def attempt_questions(attempt_id, actor):
 
 
 @examiner_exams_bp.get("/attempts/<int:attempt_id>/questions/<int:presented_id>/rounds")
-@endpoint("examinator", capability="CLASSIC_EXAM_COMMANDS_ENABLED")
+@endpoint("examinator")
 def question_rounds(attempt_id, presented_id, actor):
     from cpm_back.services.exams.results import rounds
 

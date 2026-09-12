@@ -44,10 +44,6 @@ class ClassicExamMySQLTests(unittest.TestCase):
         self.app.config.update(
             TESTING=True,
             JWT_SECRET_KEY="local-classic-exam-api-test-secret-only",
-            EXAMS_V2_ENABLED=True,
-            CLASSIC_EXAM_CREATION_ENABLED=True,
-            CLASSIC_EXAM_COMMANDS_ENABLED=True,
-            STUDENT_EXAM_RESULTS_V2_ENABLED=True,
         )
         self.app.register_blueprint(exams_v2_bp)
         self.app.register_blueprint(examiner_exams_bp)

@@ -187,13 +187,11 @@ def sweep_expired(
 def start_retention_worker(
     app, *, interval_seconds=900, batch_size=100, max_batches=12
 ):
-    """Start once for this app after pools initialize; disabled means no I/O.
+    """Start once for this app after pools initialize; no rollout flag required.
 
     Returns an inspectable handle in app.extensions['exam_retention_worker'].
     No cron/automation is installed; the bounded worker belongs to the backend.
     """
-    if not app.config.get("EXAMS_V2_ENABLED", False):
-        return None
     _positive(interval_seconds, "interval_seconds", 86400)
     _positive(batch_size, "batch_size", 1000)
     _positive(max_batches, "max_batches", 100)
@@ -207,27 +205,26 @@ def start_retention_worker(
             from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
             while not stop_event.is_set():
-                if app.config.get("EXAMS_V2_ENABLED", False):
-                    connection = None
-                    try:
-                        connection = get_db_connection()
-                        report = sweep_expired(
-                            connection, batch_size=batch_size, max_batches=max_batches
+                connection = None
+                try:
+                    connection = get_db_connection()
+                    report = sweep_expired(
+                        connection, batch_size=batch_size, max_batches=max_batches
+                    )
+                    deleted = sum(report["deleted"].values())
+                    if deleted:
+                        app.logger.info(
+                            "exam retention deleted=%s batches=%s",
+                            deleted,
+                            report["batches"],
                         )
-                        deleted = sum(report["deleted"].values())
-                        if deleted:
-                            app.logger.info(
-                                "exam retention deleted=%s batches=%s",
-                                deleted,
-                                report["batches"],
-                            )
-                    except Exception as error:
-                        app.logger.error(
-                            "exam retention failed exception=%s", type(error).__name__
-                        )
-                    finally:
-                        if connection is not None:
-                            close_db_connection(connection)
+                except Exception as error:
+                    app.logger.error(
+                        "exam retention failed exception=%s", type(error).__name__
+                    )
+                finally:
+                    if connection is not None:
+                        close_db_connection(connection)
                 stop_event.wait(interval_seconds)
 
         thread = threading.Thread(target=run, name="exam-retention", daemon=True)

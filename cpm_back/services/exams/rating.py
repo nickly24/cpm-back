@@ -1,17 +1,13 @@
 """Exam-only rating snapshots and one published-detail read model."""
 
 from datetime import datetime, time, timedelta, timezone
-from flask import current_app, has_app_context
 
 from .common import MOSCOW, UTC, UnitOfWork, transaction, parse_date, now, iso, loads
 
 
 def enabled():
-    if has_app_context():
-        return bool(current_app.config.get("RATING_EXAMS_V2_ENABLED", False))
-    from cpm_back.config import config
-
-    return bool(config.RATING_EXAMS_V2_ENABLED)
+    """Compatibility predicate for existing rating callers; exams are always on."""
+    return True
 
 
 def period_bounds(date_from, date_to):

@@ -6,14 +6,6 @@ import os
 
 
 class Config:
-    # Rollout capabilities are independent: disabling creation must not hide
-    # published results or discard an exam already in progress.
-    EXAMS_V2_ENABLED = os.environ.get('EXAMS_V2_ENABLED', 'false').lower() == 'true'
-    CLASSIC_EXAM_CREATION_ENABLED = os.environ.get('CLASSIC_EXAM_CREATION_ENABLED', 'false').lower() == 'true'
-    CLASSIC_EXAM_COMMANDS_ENABLED = os.environ.get('CLASSIC_EXAM_COMMANDS_ENABLED', 'false').lower() == 'true'
-    STUDENT_EXAM_RESULTS_V2_ENABLED = os.environ.get('STUDENT_EXAM_RESULTS_V2_ENABLED', 'false').lower() == 'true'
-    RATING_EXAMS_V2_ENABLED = os.environ.get('RATING_EXAMS_V2_ENABLED', 'false').lower() == 'true'
-
     # Flask
     SECRET_KEY = os.environ.get('SECRET_KEY', 'cpm-back-secret-change-in-production')
     ENV = os.environ.get('FLASK_ENV', 'production')

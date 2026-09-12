@@ -36,7 +36,7 @@ def _kind(kind):
     methods=["POST"],
     defaults={"exam_id": None, "kind": "outside"},
 )
-@endpoint("admin", "staff_admin", capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint("admin", "staff_admin", mutation=True)
 def parse(exam_id, kind, actor):
     _kind(kind)
     if exam_id is None:
@@ -77,7 +77,7 @@ def parse(exam_id, kind, actor):
     methods=["GET", "PUT"],
     defaults={"exam_id": None, "kind": "outside"},
 )
-@endpoint("admin", "staff_admin", capability="EXAMS_V2_ENABLED")
+@endpoint("admin", "staff_admin")
 def session(exam_id, kind, session_id, actor):
     _kind(kind)
     if exam_id is None:
@@ -121,7 +121,7 @@ def session(exam_id, kind, session_id, actor):
     methods=["POST"],
     defaults={"exam_id": None, "kind": "outside"},
 )
-@endpoint("admin", "staff_admin", capability="EXAMS_V2_ENABLED", mutation=True)
+@endpoint("admin", "staff_admin", mutation=True)
 def commit(exam_id, kind, session_id, actor):
     _kind(kind)
     if exam_id is None:

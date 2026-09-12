@@ -85,11 +85,6 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY
     app.config['JWT_ALGORITHM'] = config.JWT_ALGORITHM
     app.config['JWT_EXPIRATION_HOURS'] = config.JWT_EXPIRATION_HOURS
-    for capability in ('EXAMS_V2_ENABLED', 'CLASSIC_EXAM_CREATION_ENABLED',
-                       'CLASSIC_EXAM_COMMANDS_ENABLED', 'STUDENT_EXAM_RESULTS_V2_ENABLED',
-                       'RATING_EXAMS_V2_ENABLED'):
-        app.config[capability] = getattr(config, capability, False)
-
     from flask_cors import CORS
 
     cors_origins = list(config.CORS_ORIGINS)
@@ -190,7 +185,7 @@ def create_app():
 
     @app.route('/')
     def index():
-        return jsonify({"service": "cpm-back", "status": "ok"})
+        return jsonify({"service": "cpm-back", "status": "ok", "examMode": "always_on"})
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(homework_bp)

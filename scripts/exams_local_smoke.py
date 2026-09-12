@@ -98,11 +98,6 @@ def main():
         app.config.update(
             SECRET_KEY=uuid.uuid4().hex,
             JWT_SECRET_KEY=uuid.uuid4().hex,
-            EXAMS_V2_ENABLED=True,
-            CLASSIC_EXAM_CREATION_ENABLED=True,
-            CLASSIC_EXAM_COMMANDS_ENABLED=True,
-            STUDENT_EXAM_RESULTS_V2_ENABLED=True,
-            RATING_EXAMS_V2_ENABLED=True,
         )
         CORS(
             app,

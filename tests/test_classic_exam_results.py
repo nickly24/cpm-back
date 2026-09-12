@@ -106,8 +106,6 @@ class ClassicResultTests(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(
             JWT_SECRET_KEY="local-test-signing-key-only",
-            EXAMS_V2_ENABLED=True,
-            STUDENT_EXAM_RESULTS_V2_ENABLED=True,
         )
         self.connection.commit()
 

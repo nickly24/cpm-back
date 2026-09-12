@@ -82,17 +82,25 @@ class ExamBoundaryTests(unittest.TestCase):
             return_value={"id": 1, "role": "admin"},
         ):
             caps = self.client.get("/api/exams/capabilities").json["data"]
-            self.assertFalse(caps["canReadAdminExams"])
-            self.assertFalse(caps["canCreateClassic"])
+            self.assertTrue(caps["canReadAdminExams"])
+            self.assertTrue(caps["canCreateClassic"])
             response = self.client.post("/api/exams", json={})
             self.assertEqual(response.status_code, 401)
             self.assertEqual(response.json["error"], "bearer_token_required")
-            self.assertEqual(self.client.get("/api/exams").status_code, 503)
+            with patch("cpm_back.blueprints.exams_v2_bp.transaction") as transaction:
+                with patch(
+                    "cpm_back.services.exams.admin.list_exams",
+                    return_value={"items": []},
+                ):
+                    self.assertEqual(self.client.get("/api/exams").status_code, 200)
+                transaction.assert_called_once()
 
     def test_real_factory_registration_cors_and_uniform_unknown_path(self):
         import cpm_back
 
-        with patch("cpm_back.init_mysql_pool"), patch("cpm_back.init_mongo"), patch(
+        with patch("cpm_back.services.exams.maintenance.start_retention_worker"), patch(
+            "cpm_back.init_mysql_pool"
+        ), patch("cpm_back.init_mongo"), patch(
             "cpm_back.services.exam.rating_recalc_jobs.recover_stale_rating_jobs"
         ), patch(
             "cpm_back.services.user_import.import_jobs.recover_stale_user_import_jobs"
@@ -101,6 +109,7 @@ class ExamBoundaryTests(unittest.TestCase):
         ):
             app = cpm_back.create_app()
         client = app.test_client()
+        self.assertEqual(client.get("/").json["examMode"], "always_on")
         response = client.options(
             "/api/exams/1",
             headers={

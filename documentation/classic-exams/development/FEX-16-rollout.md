@@ -77,19 +77,13 @@ Invalid grade6 не превращается в5, дробные points не о�
 
 CORS и ApiError changes из соглашений обязательны. Проверить OPTIONS с реальным origin, Idempotency-Key/X-Exam-Confirmation, multipart,401/403/409. Frontend AGENTS требует читать установленную Next.js документацию перед реализацией; версия не выбирается по памяти.
 
-## 6. Feature flags
+## 6. Автоматическое включение и права
 
-Runtime backend capabilities:
-```text
-EXAMS_V2_ENABLED
-CLASSIC_EXAM_CREATION_ENABLED
-CLASSIC_EXAM_COMMANDS_ENABLED
-STUDENT_EXAM_RESULTS_V2_ENABLED
-RATING_EXAMS_V2_ENABLED
-```
-Все default=false до rehearsal. Capabilities endpoint GET /api/exams/capabilities (authenticated) отдаёт только доступные actor функции `{apiVersion:"v2",canManageOutside,canCreateClassic,canConductClassic,canReadStudentResults}`.
+Решением владельца от12.09.2026 первоначальные пять runtime feature flags удалены. После выкладки совместимого backend создание, проведение, результаты и новый расчёт рейтинга доступны без environment-настроек. Старые env/app.config значения не влияют на доступность. Это решение заменяет исторические упоминания rollout-флагов в исходных задачах.
 
-Выключение creation не мешает уже начатым attempts. Commands выключаются только при реальной аварии; возвращается503 exam_temporarily_unavailable, прогресс сохранён. Student reads не выключать вслед за creation. До первого classic start рейтинг/студенческий read тоже должны быть переведены, чтобы публикация не пропадала.
+Authenticated `GET /api/exams/capabilities` сохраняет контракт `{apiVersion:"v2",canReadAdminExams,canManageOutside,canCreateClassic,canConductClassic,canReadStudentResults}` и вычисляет доступ **по роли и правам**, не по флагам. Создание доступно только admin/staff_admin с edit; проведение — экзаменатору, результаты — студенту. Авторизация, Bearer для изменений и delegated permissions не снимаются.
+
+Существующий публичный `GET /` содержит `examMode:"always_on"` для проверки развёрнутой версии; он не читает БД и не заменяет проверку миграций. Автоматический retention worker также запускается без флага. Включение нового расчёта не инициирует автоматический пересчёт опубликованных рейтингов.
 
 ## 7. Нагрузка и проверки выпуска
 
@@ -122,22 +116,20 @@ Test matrix:
 
 1. Снять DDL и preflight; подготовить fixtures/rehearsal и backup restore.
 2. На копии выполнить additive015–025/028, затем reviewed mappings и hardening026–027; counts/checksums/API contract checks.
-3. Deploy backend с flags off и уже type-filtered legacy adapters.
-4. Production backup, migrate/backfill/hardening, verify outside read.
-5. Включить v2 outside UI/CRUD, safe error/CORS clients.
-6. Включить rating source/atomic publish и выполнить первый полный расчёт выбранного admin периода.
+3. Deploy always-on backend с type-filtered legacy adapters; подтвердить реальный deploy, не только push. Во время завершения миграций не изменять экзамены/участников/направления и не запускать rating jobs.
+4. Свежий migration-scoped production backup со всеми экзаменационными данными и журналами; verify restore, migrate/backfill/hardening, verify outside read и сохранность результатов.
+5. Проверить автоматически доступные v2 outside UI/CRUD, safe error/CORS clients.
+6. Выполнить первый полный расчёт выбранного admin периода через совместимую атомарную публикацию.
 7. Pilot classic + examiner + student result одновременно; проверить полный сценарий/рейтинговую инвалидацию.
 8. После результатов pilot включить общий доступ; adapters остаются до отдельного удаления.
 
 ## 9. Rollback
 
-До classic writes: выключить v2 flags, вернуть совместимый frontend/backend; additive schema оставить. После writes: creation off, reads сохранить; применять исправление вперёд либо последнюю совместимую версию. Не откатывать к backend, который видит classic через legacy SQL, удаляет snapshots или пишет старый rating поверх нового.
-
-RATING_EXAMS_V2_ENABLED нельзя выключить так, чтобы classic исчез из рейтинга незаметно: UI показывает stale/maintenance до восстановления совместимого resolver. Down migration с потерей истории не входит в аварийный rollback.
+Runtime-флагов больше нет. Применять исправление вперёд либо последнюю совместимую версию; при необходимости использовать управляемое обслуживание сервиса, сохраняя прогресс и историю. Не откатывать к backend, который видит classic через legacy SQL, удаляет snapshots или пишет старый rating поверх нового. Down migration с потерей истории не входит в аварийный rollback.
 
 ## 10. Backend / frontend / QA задачи
 
-Backend: preflight/migrator/mappings; adapters; user-delete precheck; flag/capability handling; role/CORS tests; metrics без contents; load runner.
+Backend: preflight/migrator/mappings; adapters; user-delete precheck; always-on role capabilities; role/CORS tests; metrics без contents; load runner.
 Frontend: capability routing, ApiError/transport, maintenance/stale views, user-delete conflict, mobile/E2E.
 QA/operations: rehearsal, backup/restore, sample dataset, latency report, rollout checklist и runbooks:
 migration-rehearsal.md, classic-exam-incident.md, rating-recovery.md, rollback.md, read-only data-integrity.sql.

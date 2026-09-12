@@ -82,7 +82,6 @@ class Benchmark:
         self.app.config.update(
             TESTING=True,
             JWT_SECRET_KEY="synthetic-local-load-benchmark-only",
-            CLASSIC_EXAM_COMMANDS_ENABLED=True,
         )
         self.app.register_blueprint(examiner_exams_bp)
         self.app.logger.setLevel(logging.CRITICAL)

@@ -450,7 +450,7 @@ def verify_confirmation(actor, target, fingerprint):
         )
 
 
-def endpoint(*roles, capability=None, mutation=False):
+def endpoint(*roles, mutation=False):
     """Own uniform auth/errors. Global delegated admin policy remains authoritative."""
 
     def decorate(fn):
@@ -471,12 +471,6 @@ def endpoint(*roles, capability=None, mutation=False):
                     "Bearer "
                 ):
                     fail("bearer_token_required", "Требуется Bearer-токен", 401)
-                if capability and not current_app.config.get(capability, False):
-                    fail(
-                        "exam_temporarily_unavailable",
-                        "Раздел временно недоступен",
-                        503,
-                    )
                 value = fn(*args, actor=actor, **kwargs)
                 status = 200
                 if isinstance(value, tuple):
