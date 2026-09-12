@@ -5,6 +5,7 @@ from cpm_back.auth import require_auth
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.exam.get_exams import (
+    is_classic_exam,
     delete_exam,
     get_all_exams,
     get_all_exams_paginated,
@@ -107,6 +108,8 @@ def attendance(current_user=None):
 @exams_bp.route('/exams/<exam_id>/delete-preview', methods=['GET'])
 @require_role('admin')
 def delete_preview(exam_id, current_user=None):
+    if is_classic_exam(exam_id):
+        return jsonify({'error': 'use_classic_exam_api', 'message': 'Используйте кабинет классического экзамена'}), 409
     preview = get_exam_delete_preview(exam_id)
     if not preview:
         return jsonify({'error': 'Exam not found'}), 404
@@ -118,6 +121,10 @@ def delete_preview(exam_id, current_user=None):
 def delete(exam_id, current_user=None):
     try:
         result = delete_exam(exam_id)
+    except ValueError as exc:
+        if str(exc) == 'use_classic_exam_api':
+            return jsonify({'error': 'use_classic_exam_api', 'message': 'Используйте кабинет классического экзамена'}), 409
+        raise
     except Exception as exc:
         return jsonify({'error': 'Failed to delete exam', 'message': str(exc)}), 500
 

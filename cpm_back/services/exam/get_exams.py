@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.services.exam.admin_list_utils import (
     build_pagination,
@@ -6,11 +8,22 @@ from cpm_back.services.exam.admin_list_utils import (
 )
 
 
+# Additive exam-core migration precedes this compatible application release.
+# Always join the current direction name; never expose classic records to v1.
+LEGACY_EXAMS = """(SELECT source.id, COALESCE(d.name, source.name) AS name, source.date
+    FROM exams source LEFT JOIN directions d ON d.id=source.direction_id
+    WHERE source.exam_type='outside_lms')"""
+
+
+def _number(value):
+    return float(value) if isinstance(value, Decimal) else value
+
+
 def _map_session_row(s):
     return {
         "id": s["id"],
-        "points": s["val"],
-        "grade": s["points"],
+        "points": _number(s["val"]),
+        "grade": _number(s["points"]),
         "examinator": s["examinator"],
         "student_id": s.get("student_id"),
         "exam_id": s["exam_id"],
@@ -50,7 +63,7 @@ def get_all_exams():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        query = "SELECT id, name, date FROM exams ORDER BY date DESC"
+        query = f"SELECT id, name, date FROM {LEGACY_EXAMS} e ORDER BY date DESC"
         cursor.execute(query)
         exams = cursor.fetchall()
 
@@ -86,7 +99,7 @@ def get_all_exams_paginated(page_raw=1, limit_raw=20, search=None, sort="date"):
         where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         cursor.execute(
-            f"SELECT COUNT(*) as total FROM exams e {where_sql}",
+            f"SELECT COUNT(*) as total FROM {LEGACY_EXAMS} e {where_sql}",
             params,
         )
         total = cursor.fetchone()["total"]
@@ -103,7 +116,7 @@ def get_all_exams_paginated(page_raw=1, limit_raw=20, search=None, sort="date"):
                     FROM exam_sessions es
                     WHERE es.exam_id = e.id
                 ) AS sessions_count
-            FROM exams e
+            FROM {LEGACY_EXAMS} e
             {where_sql}
             ORDER BY {order_sql}
             LIMIT %s OFFSET %s
@@ -136,7 +149,7 @@ def get_exam_session(student_id, exam_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        cursor.execute("SELECT id, name, date FROM exams WHERE id = %s", (exam_id,))
+        cursor.execute(f"SELECT id, name, date FROM {LEGACY_EXAMS} e WHERE id = %s", (exam_id,))
         exam = cursor.fetchone()
 
         if not exam:
@@ -165,8 +178,8 @@ def get_exam_session(student_id, exam_id):
         return {
             "status": True,
             "exam": exam,
-            "grade": session["points"],
-            "score": session["val"],
+            "grade": _number(session["points"]),
+            "score": _number(session["val"]),
             "examinator": session["examinator"],
         }
 
@@ -189,7 +202,7 @@ def get_exam_sessions_by_student(student_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        query = """
+        query = f"""
             SELECT
                 es.id,
                 es.val,
@@ -199,7 +212,7 @@ def get_exam_sessions_by_student(student_id):
                 e.name as exam_name,
                 e.date as exam_date
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             WHERE es.student_id = %s
             ORDER BY e.date DESC
         """
@@ -259,6 +272,7 @@ def get_exam_sessions_by_student_paginated(
                 AVG(es.points) as avg_grade,
                 COALESCE(SUM(es.val), 0) as total_points
             FROM exam_sessions es
+            INNER JOIN {LEGACY_EXAMS} e ON e.id=es.exam_id
             WHERE {where_sql}
             """,
             params,
@@ -267,14 +281,14 @@ def get_exam_sessions_by_student_paginated(
         summary = {
             "count": int(summary_row["count"] or 0),
             "averageGrade": float(summary_row["avg_grade"] or 0),
-            "totalPoints": int(summary_row["total_points"] or 0),
+            "totalPoints": float(summary_row["total_points"] or 0),
         }
 
         cursor.execute(
             f"""
             SELECT COUNT(*) as total
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             WHERE {where_sql}
             """,
             params,
@@ -292,7 +306,7 @@ def get_exam_sessions_by_student_paginated(
                 e.name as exam_name,
                 e.date as exam_date
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             WHERE {where_sql}
             ORDER BY {order_sql}
             LIMIT %s OFFSET %s
@@ -326,7 +340,7 @@ def get_all_exam_sessions():
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        query = """
+        query = f"""
             SELECT
                 es.id,
                 es.val,
@@ -338,7 +352,7 @@ def get_all_exam_sessions():
                 e.date as exam_date,
                 s.full_name as student_name
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             INNER JOIN students s ON es.student_id = s.id
             ORDER BY e.date DESC, s.full_name ASC
         """
@@ -370,7 +384,7 @@ def get_exam_sessions_by_exam(exam_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        query = """
+        query = f"""
             SELECT
                 es.id,
                 es.val,
@@ -382,7 +396,7 @@ def get_exam_sessions_by_exam(exam_id):
                 e.date as exam_date,
                 s.full_name as student_name
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             INNER JOIN students s ON es.student_id = s.id
             WHERE e.id = %s
             ORDER BY s.full_name ASC
@@ -443,7 +457,7 @@ def get_exam_sessions_by_exam_paginated(
             f"""
             SELECT COUNT(*) as total
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             INNER JOIN students s ON es.student_id = s.id
             WHERE {where_sql}
             """,
@@ -464,7 +478,7 @@ def get_exam_sessions_by_exam_paginated(
                 e.date as exam_date,
                 s.full_name as student_name
             FROM exam_sessions es
-            INNER JOIN exams e ON es.exam_id = e.id
+            INNER JOIN {LEGACY_EXAMS} e ON es.exam_id = e.id
             INNER JOIN students s ON es.student_id = s.id
             WHERE {where_sql}
             ORDER BY {order_sql}
@@ -507,7 +521,7 @@ def _get_exam_row(exam_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, name, date FROM exams WHERE id = %s",
+            f"SELECT id, name, date FROM {LEGACY_EXAMS} e WHERE id = %s",
             (numeric_id,),
         )
         return cursor.fetchone()
@@ -558,6 +572,18 @@ def get_exam_delete_preview(exam_id):
     }
 
 
+def is_classic_exam(exam_id):
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT exam_type FROM exams WHERE id=%s", (exam_id,))
+        row = cursor.fetchone()
+        return bool(row and row['exam_type'] == 'classic')
+    finally:
+        cursor.close()
+        close_db_connection(connection)
+
+
 def delete_exam(exam_id):
     numeric_id = _parse_exam_id(exam_id)
     if not numeric_id:
@@ -568,9 +594,12 @@ def delete_exam(exam_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        cursor.execute("SELECT id FROM exams WHERE id = %s", (numeric_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id,exam_type FROM exams WHERE id = %s FOR UPDATE", (numeric_id,))
+        row = cursor.fetchone()
+        if not row:
             return None
+        if row['exam_type'] != 'outside_lms':
+            raise ValueError('use_classic_exam_api')
 
         cursor.execute(
             "DELETE FROM exam_sessions WHERE exam_id = %s",
@@ -583,6 +612,7 @@ def delete_exam(exam_id):
             (numeric_id,),
         )
         exam_deleted = cursor.rowcount > 0
+        cursor.execute("UPDATE rating_source_state SET source_revision=source_revision+1 WHERE id=1")
         connection.commit()
 
         return {

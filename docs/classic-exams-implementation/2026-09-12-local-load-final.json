@@ -1,0 +1,262 @@
+{
+  "profile": {
+    "commissions": 50,
+    "membersPerCommission": 6,
+    "regularQuestions": 6,
+    "disputedQuestionsFraction": 0.3,
+    "replacedQuestionsFraction": 0.1,
+    "extraAttemptsFraction": 0.2,
+    "workers": 32,
+    "poolConnections": 32,
+    "saturationWorkers": 64,
+    "python": "3.13.14",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "transport": "Authenticated Flask test-client dispatch; real local Unix-socket MySQL; no HTTP proxy/WSGI/network RTT",
+    "latency": "pXXMs includes dispatch and pool admission; queuedPXXMs additionally includes waiting for a benchmark executor worker"
+  },
+  "database": {
+    "mysqlVersion": "8.0.46",
+    "maxAllowedPacket": 67108864
+  },
+  "mainInvariants": {
+    "attempts": 50,
+    "presented": 340,
+    "votes": 2400,
+    "disputed_rounds": 90,
+    "replacements": 30,
+    "allFinalScoresChecked": true
+  },
+  "longHistoryInvariants": {
+    "questions": 1002,
+    "votes": 6012,
+    "stateBytesBefore": 2056,
+    "stateBytesAfter": 2065
+  },
+  "maximumBank": {
+    "questions": 5000,
+    "bankBytes": 16777216,
+    "prepareIncludingSixReadyMs": 355.199,
+    "sqlCalls": 373,
+    "maxParameterizedStatementBytes": 730,
+    "selectedQuestionTextBytes": 122880,
+    "note": "Forced first random choice only in this profile, to measure the largest allowed current-question response."
+  },
+  "success": true,
+  "measurements": {
+    "main": {
+      "requests": 3380,
+      "errors": 0,
+      "statusCounts": {
+        "201": 50,
+        "200": 3330
+      },
+      "errorCodes": {},
+      "p50Ms": 55.633,
+      "p95Ms": 118.218,
+      "p99Ms": 161.341,
+      "queuedP50Ms": 144.832,
+      "queuedP95Ms": 437.535,
+      "queuedP99Ms": 871.732,
+      "maxMs": 189.11,
+      "maxPayloadBytes": 3557,
+      "commands": {
+        "ensure": {
+          "count": 50,
+          "p50Ms": 100.192,
+          "p95Ms": 125.788,
+          "p99Ms": 129.749
+        },
+        "next-question": {
+          "count": 250,
+          "p50Ms": 59.584,
+          "p95Ms": 78.188,
+          "p99Ms": 81.667
+        },
+        "ready": {
+          "count": 300,
+          "p50Ms": 92.054,
+          "p95Ms": 174.848,
+          "p99Ms": 183.536
+        },
+        "refresh": {
+          "count": 300,
+          "p50Ms": 28.679,
+          "p95Ms": 39.347,
+          "p99Ms": 42.201
+        },
+        "replace-question": {
+          "count": 30,
+          "p50Ms": 63.497,
+          "p95Ms": 69.098,
+          "p99Ms": 70.008
+        },
+        "start": {
+          "count": 50,
+          "p50Ms": 93.913,
+          "p95Ms": 104.215,
+          "p99Ms": 110.098
+        },
+        "vote": {
+          "count": 2400,
+          "p50Ms": 55.791,
+          "p95Ms": 112.708,
+          "p99Ms": 123.073
+        }
+      }
+    },
+    "saturation": {
+      "requests": 300,
+      "errors": 0,
+      "statusCounts": {
+        "200": 300
+      },
+      "errorCodes": {},
+      "p50Ms": 30.255,
+      "p95Ms": 229.718,
+      "p99Ms": 248.446,
+      "queuedP50Ms": 108.595,
+      "queuedP95Ms": 231.158,
+      "queuedP99Ms": 248.592,
+      "maxMs": 257.939,
+      "maxPayloadBytes": 2069,
+      "commands": {
+        "refresh": {
+          "count": 300,
+          "p50Ms": 30.255,
+          "p95Ms": 229.718,
+          "p99Ms": 248.446
+        }
+      }
+    },
+    "long_history_setup": {
+      "requests": 14,
+      "errors": 0,
+      "statusCounts": {
+        "201": 1,
+        "200": 13
+      },
+      "errorCodes": {},
+      "p50Ms": 7.697,
+      "p95Ms": 16.045,
+      "p99Ms": 16.045,
+      "queuedP50Ms": 8.002,
+      "queuedP95Ms": 16.302,
+      "queuedP99Ms": 16.302,
+      "maxMs": 18.161,
+      "maxPayloadBytes": 2090,
+      "commands": {
+        "ensure": {
+          "count": 1,
+          "p50Ms": 3.92,
+          "p95Ms": 3.92,
+          "p99Ms": 3.92
+        },
+        "ready": {
+          "count": 6,
+          "p50Ms": 9.574,
+          "p95Ms": 16.045,
+          "p99Ms": 16.045
+        },
+        "start": {
+          "count": 1,
+          "p50Ms": 4.047,
+          "p95Ms": 4.047,
+          "p99Ms": 4.047
+        },
+        "vote": {
+          "count": 6,
+          "p50Ms": 6.883,
+          "p95Ms": 9.592,
+          "p99Ms": 9.592
+        }
+      }
+    },
+    "long_history": {
+      "requests": 6000,
+      "errors": 0,
+      "statusCounts": {
+        "200": 6000
+      },
+      "errorCodes": {},
+      "p50Ms": 7.069,
+      "p95Ms": 11.787,
+      "p99Ms": 12.969,
+      "queuedP50Ms": 7.488,
+      "queuedP95Ms": 12.336,
+      "queuedP99Ms": 13.425,
+      "maxMs": 44.883,
+      "maxPayloadBytes": 2104,
+      "commands": {
+        "vote": {
+          "count": 6000,
+          "p50Ms": 7.069,
+          "p95Ms": 11.787,
+          "p99Ms": 12.969
+        }
+      }
+    },
+    "long_history_finish": {
+      "requests": 6,
+      "errors": 0,
+      "statusCounts": {
+        "200": 6
+      },
+      "errorCodes": {},
+      "p50Ms": 6.103,
+      "p95Ms": 9.544,
+      "p99Ms": 9.544,
+      "queuedP50Ms": 6.55,
+      "queuedP95Ms": 9.573,
+      "queuedP99Ms": 9.573,
+      "maxMs": 10.388,
+      "maxPayloadBytes": 2271,
+      "commands": {
+        "vote": {
+          "count": 6,
+          "p50Ms": 6.103,
+          "p95Ms": 9.544,
+          "p99Ms": 9.544
+        }
+      }
+    },
+    "maximum_bank": {
+      "requests": 8,
+      "errors": 0,
+      "statusCounts": {
+        "201": 1,
+        "200": 7
+      },
+      "errorCodes": {},
+      "p50Ms": 16.494,
+      "p95Ms": 29.31,
+      "p99Ms": 29.31,
+      "queuedP50Ms": 16.759,
+      "queuedP95Ms": 30.262,
+      "queuedP99Ms": 30.262,
+      "maxMs": 318.899,
+      "maxPayloadBytes": 124897,
+      "commands": {
+        "ensure": {
+          "count": 1,
+          "p50Ms": 5.597,
+          "p95Ms": 5.597,
+          "p99Ms": 5.597
+        },
+        "ready": {
+          "count": 6,
+          "p50Ms": 16.494,
+          "p95Ms": 25.125,
+          "p99Ms": 25.125
+        },
+        "start": {
+          "count": 1,
+          "p50Ms": 318.899,
+          "p95Ms": 318.899,
+          "p99Ms": 318.899
+        }
+      }
+    }
+  },
+  "elapsedSeconds": 20.445,
+  "disposableSchemaDropped": true
+}

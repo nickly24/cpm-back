@@ -8,6 +8,7 @@ import hashlib
 from cpm_back.db.mongo import get_mongo_db
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 from cpm_back.services.serv.school_schema import is_schools_schema_ready
+from cpm_back.services.exams.rating import enabled as exam_rating_enabled, read_published_details, freshness_response
 
 
 def _column(
@@ -124,13 +125,17 @@ def get_ratings_report():
                 "columns": [],
                 "values": [],
                 "message": "Рейтинг ещё не рассчитан",
+                **freshness_response(connection),
             }
 
-        mongo_db = get_mongo_db()
         rating_ids = [row["rating_id"] for row in rows]
-        details_by_rating: dict[int, dict] = {}
-        for doc in mongo_db.rate_rec.find({"rating_id": {"$in": rating_ids}}):
-            details_by_rating[int(doc["rating_id"])] = doc
+        if exam_rating_enabled():
+            details_by_rating = read_published_details(connection, rating_ids=rating_ids)
+        else:
+            mongo_db = get_mongo_db()
+            details_by_rating: dict[int, dict] = {}
+            for doc in mongo_db.rate_rec.find({"rating_id": {"$in": rating_ids}}):
+                details_by_rating[int(doc["rating_id"])] = doc
 
         period = None
         homework_meta: dict[str, dict] = {}
@@ -312,6 +317,7 @@ def get_ratings_report():
             "students": students,
             "columns": columns,
             "values": values,
+            **freshness_response(connection),
         }
 
     except Exception as err:

@@ -33,7 +33,9 @@ def delete(current_user=None):
     user_id = data.get('userId')
     if not role or not user_id:
         return jsonify({'status': False, 'error': 'role и userId обязательны'}), 400
-    return jsonify(delete_user(role, user_id))
+    result = delete_user(role, user_id)
+    status = result.pop('http_status', 200)
+    return jsonify(result), status
 
 
 @users_bp.route('/add-staff-user', methods=['POST'])

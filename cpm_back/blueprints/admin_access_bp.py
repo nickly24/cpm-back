@@ -18,6 +18,11 @@ def invalid(exc):
     return jsonify({'status': False, 'error': str(exc)}), 400
 
 
+@admin_access_bp.errorhandler(admin_access.ExamReferencedUserError)
+def exam_actor_referenced(exc):
+    return jsonify({'status': False, 'error': str(exc), 'code': exc.code}), 409
+
+
 @admin_access_bp.errorhandler(LookupError)
 def missing(exc):
     return jsonify({'status': False, 'error': str(exc)}), 404

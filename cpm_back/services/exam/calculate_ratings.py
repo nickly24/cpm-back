@@ -105,6 +105,14 @@ def calculate_homework_rating(mysql_conn, student_id, date_from, date_to):
 
 
 def calculate_exams_rating(mysql_conn, student_id, date_from, date_to):
+    from cpm_back.services.exams.rating import enabled, capture_exam_input, calculate_from_snapshot
+    if enabled():
+        from cpm_back.services.exams.common import UnitOfWork
+        db = UnitOfWork(mysql_conn)
+        try:
+            return calculate_from_snapshot(capture_exam_input(db, date_from, date_to), student_id)
+        finally:
+            db.cursor.close()
     cursor = mysql_conn.cursor(dictionary=True)
     query = """
         SELECT es.id, es.points as score, e.id as exam_id, e.name as exam_name, e.date as exam_date

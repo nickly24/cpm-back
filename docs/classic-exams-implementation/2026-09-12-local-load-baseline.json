@@ -1,0 +1,245 @@
+{
+  "profile": {
+    "commissions": 50,
+    "membersPerCommission": 6,
+    "regularQuestions": 6,
+    "disputedQuestionsFraction": 0.3,
+    "replacedQuestionsFraction": 0.1,
+    "extraAttemptsFraction": 0.2,
+    "workers": 32,
+    "poolConnections": 32,
+    "saturationWorkers": 64,
+    "python": "3.13.14",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "transport": "Authenticated Flask test-client dispatch; real local Unix-socket MySQL; no HTTP proxy/WSGI/network RTT"
+  },
+  "database": {
+    "mysqlVersion": "8.0.46",
+    "maxAllowedPacket": 67108864
+  },
+  "mainInvariants": {
+    "attempts": 50,
+    "presented": 340,
+    "votes": 2400,
+    "disputed_rounds": 90,
+    "replacements": 30
+  },
+  "longHistoryInvariants": {
+    "questions": 1002,
+    "votes": 6012,
+    "stateBytesBefore": 2056,
+    "stateBytesAfter": 2065
+  },
+  "maximumBank": {
+    "questions": 5000,
+    "bankBytes": 16777216,
+    "prepareIncludingSixReadyMs": 257.173,
+    "sqlCalls": 373,
+    "maxParameterizedStatementBytes": 730,
+    "selectedQuestionTextBytes": 122880,
+    "note": "Forced first random choice only in this profile, to measure the largest allowed current-question response."
+  },
+  "success": true,
+  "measurements": {
+    "main": {
+      "requests": 3380,
+      "errors": 0,
+      "statusCounts": {
+        "201": 50,
+        "200": 3330
+      },
+      "errorCodes": {},
+      "p50Ms": 56.401,
+      "p95Ms": 122.258,
+      "p99Ms": 167.456,
+      "maxMs": 216.851,
+      "maxPayloadBytes": 3556,
+      "commands": {
+        "ensure": {
+          "count": 50,
+          "p50Ms": 107.618,
+          "p95Ms": 132.176,
+          "p99Ms": 134.354
+        },
+        "next-question": {
+          "count": 250,
+          "p50Ms": 59.744,
+          "p95Ms": 79.398,
+          "p99Ms": 83.047
+        },
+        "ready": {
+          "count": 300,
+          "p50Ms": 97.071,
+          "p95Ms": 183.452,
+          "p99Ms": 200.256
+        },
+        "refresh": {
+          "count": 300,
+          "p50Ms": 27.701,
+          "p95Ms": 37.178,
+          "p99Ms": 41.14
+        },
+        "replace-question": {
+          "count": 30,
+          "p50Ms": 65.299,
+          "p95Ms": 70.232,
+          "p99Ms": 71.182
+        },
+        "start": {
+          "count": 50,
+          "p50Ms": 97.201,
+          "p95Ms": 110.392,
+          "p99Ms": 116.694
+        },
+        "vote": {
+          "count": 2400,
+          "p50Ms": 56.493,
+          "p95Ms": 115.837,
+          "p99Ms": 127.636
+        }
+      }
+    },
+    "saturation": {
+      "requests": 300,
+      "errors": 229,
+      "statusCounts": {
+        "200": 71,
+        "500": 229
+      },
+      "errorCodes": {
+        "internal_error": 229
+      },
+      "p50Ms": 0.141,
+      "p95Ms": 60.763,
+      "p99Ms": 72.371,
+      "maxMs": 78.144,
+      "maxPayloadBytes": 2069,
+      "commands": {
+        "refresh": {
+          "count": 300,
+          "p50Ms": 0.141,
+          "p95Ms": 60.763,
+          "p99Ms": 72.371
+        }
+      }
+    },
+    "long_history_setup": {
+      "requests": 14,
+      "errors": 0,
+      "statusCounts": {
+        "201": 1,
+        "200": 13
+      },
+      "errorCodes": {},
+      "p50Ms": 7.553,
+      "p95Ms": 15.369,
+      "p99Ms": 15.369,
+      "maxMs": 18.569,
+      "maxPayloadBytes": 2090,
+      "commands": {
+        "ensure": {
+          "count": 1,
+          "p50Ms": 3.763,
+          "p95Ms": 3.763,
+          "p99Ms": 3.763
+        },
+        "ready": {
+          "count": 6,
+          "p50Ms": 10.932,
+          "p95Ms": 15.369,
+          "p99Ms": 15.369
+        },
+        "start": {
+          "count": 1,
+          "p50Ms": 3.925,
+          "p95Ms": 3.925,
+          "p99Ms": 3.925
+        },
+        "vote": {
+          "count": 6,
+          "p50Ms": 6.917,
+          "p95Ms": 9.223,
+          "p99Ms": 9.223
+        }
+      }
+    },
+    "long_history": {
+      "requests": 6000,
+      "errors": 0,
+      "statusCounts": {
+        "200": 6000
+      },
+      "errorCodes": {},
+      "p50Ms": 6.63,
+      "p95Ms": 10.933,
+      "p99Ms": 11.752,
+      "maxMs": 26.814,
+      "maxPayloadBytes": 2104,
+      "commands": {
+        "vote": {
+          "count": 6000,
+          "p50Ms": 6.63,
+          "p95Ms": 10.933,
+          "p99Ms": 11.752
+        }
+      }
+    },
+    "long_history_finish": {
+      "requests": 6,
+      "errors": 0,
+      "statusCounts": {
+        "200": 6
+      },
+      "errorCodes": {},
+      "p50Ms": 6.284,
+      "p95Ms": 9.852,
+      "p99Ms": 9.852,
+      "maxMs": 11.356,
+      "maxPayloadBytes": 2271,
+      "commands": {
+        "vote": {
+          "count": 6,
+          "p50Ms": 6.284,
+          "p95Ms": 9.852,
+          "p99Ms": 9.852
+        }
+      }
+    },
+    "maximum_bank": {
+      "requests": 8,
+      "errors": 0,
+      "statusCounts": {
+        "201": 1,
+        "200": 7
+      },
+      "errorCodes": {},
+      "p50Ms": 15.22,
+      "p95Ms": 27.364,
+      "p99Ms": 27.364,
+      "maxMs": 223.071,
+      "maxPayloadBytes": 124897,
+      "commands": {
+        "ensure": {
+          "count": 1,
+          "p50Ms": 5.658,
+          "p95Ms": 5.658,
+          "p99Ms": 5.658
+        },
+        "ready": {
+          "count": 6,
+          "p50Ms": 15.22,
+          "p95Ms": 23.18,
+          "p99Ms": 23.18
+        },
+        "start": {
+          "count": 1,
+          "p50Ms": 223.071,
+          "p95Ms": 223.071,
+          "p99Ms": 223.071
+        }
+      }
+    }
+  },
+  "elapsedSeconds": 19.316,
+  "disposableSchemaDropped": true
+}

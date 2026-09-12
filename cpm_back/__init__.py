@@ -39,9 +39,13 @@ from .blueprints import (
     test_drafts_bp,
 )
 from cpm_back.blueprints.test_attempts_bp import test_attempts_bp
+from cpm_back.blueprints.exams_v2_bp import exams_v2_bp
+from cpm_back.blueprints.examiner_exams_bp import examiner_exams_bp
+from cpm_back.blueprints.student_exams_bp import student_exams_bp
+from cpm_back.blueprints.exam_imports_bp import exam_imports_bp
 
 _LOG_MOSCOW_TZ = ZoneInfo('Europe/Moscow')
-logging.Formatter.converter = lambda timestamp: datetime.fromtimestamp(timestamp, _LOG_MOSCOW_TZ).timetuple()
+logging.Formatter.converter = staticmethod(lambda timestamp: datetime.fromtimestamp(timestamp, _LOG_MOSCOW_TZ).timetuple())
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -81,6 +85,10 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY
     app.config['JWT_ALGORITHM'] = config.JWT_ALGORITHM
     app.config['JWT_EXPIRATION_HOURS'] = config.JWT_EXPIRATION_HOURS
+    for capability in ('EXAMS_V2_ENABLED', 'CLASSIC_EXAM_CREATION_ENABLED',
+                       'CLASSIC_EXAM_COMMANDS_ENABLED', 'STUDENT_EXAM_RESULTS_V2_ENABLED',
+                       'RATING_EXAMS_V2_ENABLED'):
+        app.config[capability] = getattr(config, capability, False)
 
     from flask_cors import CORS
 
@@ -102,9 +110,10 @@ def create_app():
         resources={r'/*': {
             'origins': cors_origins,
             'methods': ['GET', 'POST', 'PATCH', 'OPTIONS', 'PUT', 'DELETE'],
-            'allow_headers': ['Content-Type', 'Authorization', 'X-Requested-With'],
+            'allow_headers': ['Content-Type', 'Authorization', 'X-Requested-With',
+                              'Idempotency-Key', 'X-Exam-Confirmation', 'X-Correlation-ID'],
             'supports_credentials': True,
-            'expose_headers': ['Content-Type'],
+            'expose_headers': ['Content-Type', 'X-Correlation-ID'],
         }},
         intercept_exceptions=True,
     )
@@ -117,6 +126,8 @@ def create_app():
 
     init_mysql_pool(config)
     init_mongo(config)
+    from cpm_back.services.exams.maintenance import start_retention_worker
+    start_retention_worker(app)
 
     try:
         from cpm_back.services.exam.rating_recalc_jobs import recover_stale_rating_jobs
@@ -139,10 +150,14 @@ def create_app():
     @app.before_request
     def log_request():
         request.start_time = time.time()
-        request.correlation_id = request.headers.get('X-Correlation-ID') or str(uuid.uuid4())
+        try:
+            request.correlation_id = str(uuid.UUID(request.headers.get('X-Correlation-ID', '')))
+        except ValueError:
+            request.correlation_id = str(uuid.uuid4())
         client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
         logger.info(f"[CPM-BACK REQUEST] {request.correlation_id} | {request.method} {request.path} | IP: {client_ip}")
-        if request.method in ('POST', 'PUT', 'PATCH') and request.is_json:
+        exam_request = request.path.startswith(('/api/exams', '/api/examiner/', '/api/student/exams', '/api/outside-exam-results-import'))
+        if request.method in ('POST', 'PUT', 'PATCH') and request.is_json and not exam_request:
             try:
                 logger.info(f"[CPM-BACK BODY] {_safe_request_body()}")
             except Exception:
@@ -151,13 +166,22 @@ def create_app():
     @app.after_request
     def log_response(response):
         duration = (time.time() - getattr(request, 'start_time', time.time())) * 1000
-        correlation_id = getattr(request, 'correlation_id', str(uuid.uuid4()))
+        correlation_id = response.headers.get('X-Correlation-ID') or getattr(request, 'correlation_id', str(uuid.uuid4()))
         response.headers['X-Correlation-ID'] = correlation_id
         logger.info(f"[CPM-BACK RESPONSE] {correlation_id} | {request.method} {request.path} | Status: {response.status_code} | {duration:.2f}ms")
         return response
 
     @app.errorhandler(Exception)
     def handle_exception(e):
+        if request.path.startswith(('/api/exams', '/api/examiner/', '/api/student/exams', '/api/outside-exam-results-import')):
+            status = e.code if isinstance(e, HTTPException) else 500
+            correlation = getattr(request, 'correlation_id', str(uuid.uuid4()))
+            code = {404: 'not_found', 405: 'method_not_allowed', 413: 'payload_too_large'}.get(status, 'internal_error' if status == 500 else 'invalid_request')
+            logger.error('exam boundary failed correlation=%s exception=%s', correlation, type(e).__name__)
+            response = jsonify({'success': False, 'error': code, 'message': 'Запрос не выполнен', 'details': {}, 'correlationId': correlation})
+            response.status_code = status
+            response.headers['Cache-Control'] = 'private, no-store'
+            return response
         # Не превращаем штатные HTTP-ошибки (404/405/и т.д.) в 500.
         if isinstance(e, HTTPException):
             return jsonify({"error": e.name, "message": e.description}), e.code
@@ -183,6 +207,10 @@ def create_app():
     app.register_blueprint(tests_bp)
     app.register_blueprint(test_attempts_bp)
     app.register_blueprint(exams_bp)
+    app.register_blueprint(exams_v2_bp)
+    app.register_blueprint(examiner_exams_bp)
+    app.register_blueprint(student_exams_bp)
+    app.register_blueprint(exam_imports_bp)
     app.register_blueprint(external_tests_bp)
     app.register_blueprint(external_test_results_import_bp)
     app.register_blueprint(card_import_bp)

@@ -3,7 +3,7 @@
 Existing admin/proctor/student checks remain in their handlers. A staff_admin is admitted
 by those decorators only after this policy has authorised the actual endpoint and payload.
 """
-from flask import g, jsonify, request
+from flask import g, jsonify, request, has_request_context
 
 SECTIONS = {
     'dashboard': 'Главная', 'users': 'Пользователи', 'schools': 'Школы',
@@ -108,6 +108,15 @@ def requirements(endpoint, payload=None):
 
 
 def allowed(user, endpoint, payload=None):
+    # New blueprints deliberately share handler names between GET and POST/PUT.
+    # Keep the legacy default-deny policy, and authorize each real method.
+    if has_request_context() and endpoint.startswith(('exams_v2.', 'exam_imports.')):
+        action = 'view' if request.method in ('GET', 'HEAD') else 'edit'
+        if not has_permission(user, 'exams', action):
+            return False
+        if endpoint.startswith('exam_imports.'):
+            return has_permission(user, 'upload', action)
+        return True
     if endpoint.startswith('users.') and isinstance(payload, dict):
         if payload.get('role') not in {'student', 'proctor', 'examinator', 'supervisor'}:
             return False
@@ -124,6 +133,14 @@ def enforce_admin_permissions():
     if request.endpoint == 'auth.aun':
         return None
     if not allowed(user, request.endpoint or '', request.get_json(silent=True)):
+        if request.path.startswith(('/api/exams', '/api/examiner/', '/api/student/exams', '/api/outside-exam-results-import')):
+            import uuid
+            response = jsonify({'success': False, 'error': 'forbidden', 'message': 'Недостаточно прав для этого действия',
+                                'details': {}, 'correlationId': str(uuid.uuid4())})
+            response.status_code = 403
+            response.headers['Cache-Control'] = 'private, no-store'
+            response.headers['X-Correlation-ID'] = response.get_json()['correlationId']
+            return response
         return jsonify({'status': False, 'error': 'Недостаточно прав для этого действия'}), 403
     g.staff_admin_authorized = True
     return None

@@ -13,6 +13,7 @@ from cpm_back.services.exam.rating_recalc_jobs import (
     list_recalc_jobs,
 )
 from cpm_back.services.exam.ratings_report import get_ratings_report
+from cpm_back.services.exams.rating import enabled as exam_rating_enabled, freshness_response, read_published_bundle
 
 ratings_bp = Blueprint('ratings', __name__, url_prefix='')
 
@@ -65,7 +66,7 @@ def all_ratings(current_user=None):
         mysql_conn = get_db_connection()
         ratings = _fetch_ratings_rows(mysql_conn)
         formatted = _format_ratings(ratings)
-        return jsonify({"status": True, "ratings": formatted, "total": len(formatted)})
+        return jsonify({"status": True, "ratings": formatted, "total": len(formatted), **freshness_response(mysql_conn)})
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
     finally:
@@ -94,7 +95,7 @@ def all_ratings_legacy(current_user=None):
                 "exam_rate": float(r["exams"]) if r["exams"] is not None else 0,
                 "rate": float(r["final"]) if r["final"] is not None else 0
             })
-        return jsonify({"status": True, "data": {"students": students}})
+        return jsonify({"status": True, "data": {"students": students}, **freshness_response(mysql_conn)})
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
     finally:
@@ -116,13 +117,18 @@ def rating_details(current_user=None):
     except (ValueError, TypeError):
         return jsonify({"status": False, "error": "rating_id должен быть числом"}), 400
     try:
-        mongo_db = get_mongo_db()
-        details = mongo_db.rate_rec.find_one({'rating_id': rating_id})
+        freshness_metadata = {}
+        if exam_rating_enabled():
+            published, freshness_metadata = read_published_bundle(rating_ids=[rating_id])
+            details = published.get(rating_id)
+        else:
+            mongo_db = get_mongo_db()
+            details = mongo_db.rate_rec.find_one({'rating_id': rating_id})
         if not details:
             return jsonify({"status": False, "error": f"Детализация для rating_id {rating_id} не найдена"}), 404
         if '_id' in details:
             details['_id'] = str(details['_id'])
-        return jsonify({"status": True, "details": details})
+        return jsonify({"status": True, "details": details, **freshness_metadata})
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
 
@@ -140,8 +146,10 @@ def calculate_all(current_user=None):
     try:
         datetime.strptime(date_from, "%Y-%m-%d")
         datetime.strptime(date_to, "%Y-%m-%d")
-    except ValueError:
+    except (ValueError, TypeError):
         return jsonify({"status": False, "error": "Неверный формат даты. Ожидается YYYY-MM-DD"}), 400
+    if date_from > date_to:
+        return jsonify({"status": False, "error": "Начало периода позже окончания"}), 400
 
     try:
         job = create_recalc_job(
@@ -178,6 +186,7 @@ def rating_recalc_jobs_list(current_user=None):
             "jobs": jobs,
             "active_job_id": active['id'] if active else None,
             "total": len(jobs),
+            **freshness_response(),
         })
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
@@ -209,15 +218,20 @@ def my_rating(current_user=None):
     try:
         # В БД student_id может быть int
         sid = int(student_id) if isinstance(student_id, str) and student_id.isdigit() else student_id
-        mongo_db = get_mongo_db()
-        cursor = mongo_db.rate_rec.find(
-            {'student_id': sid},
-            {'_id': 0, 'rating_id': 1, 'student_id': 1, 'date_from': 1, 'date_to': 1,
-             'calculated_at': 1, 'homework.rating': 1, 'exams.rating': 1, 'tests.rating': 1}
-        ).sort('calculated_at', -1).limit(1)
-        doc = next(cursor, None)
+        freshness_metadata = {}
+        if exam_rating_enabled():
+            published, freshness_metadata = read_published_bundle(student_id=sid)
+            doc = next(iter(published.values()), None)
+        else:
+            mongo_db = get_mongo_db()
+            cursor = mongo_db.rate_rec.find(
+                {'student_id': sid},
+                {'_id': 0, 'rating_id': 1, 'student_id': 1, 'date_from': 1, 'date_to': 1,
+                 'calculated_at': 1, 'homework.rating': 1, 'exams.rating': 1, 'tests.rating': 1}
+            ).sort('calculated_at', -1).limit(1)
+            doc = next(cursor, None)
         if not doc:
-            return jsonify({"status": True, "data": None, "message": "Рейтинг ещё не рассчитан"})
+            return jsonify({"status": True, "data": None, "message": "Рейтинг ещё не рассчитан", **freshness_metadata})
         # Преобразуем для фронта: округлённые баллы по трём направлениям
         hw = doc.get('homework') or {}
         ex = doc.get('exams') or {}
@@ -232,7 +246,7 @@ def my_rating(current_user=None):
             'exams': {'rating': round(float(ex.get('rating', 0)), 2)},
             'tests': {'rating': round(float(ts.get('rating', 0)), 2)},
         }
-        return jsonify({"status": True, "data": out})
+        return jsonify({"status": True, "data": out, **freshness_metadata})
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
 
@@ -263,7 +277,7 @@ def student_rating(current_user=None):
         """, (student_id,))
         row = cursor.fetchone()
         if not row:
-            return jsonify({"status": True, "data": []})
+            return jsonify({"status": True, "data": [], **freshness_response(mysql_conn)})
         payload = {
             "id": row["student_id"],
             "student_id": row["student_id"],
@@ -273,7 +287,7 @@ def student_rating(current_user=None):
             "exam_rate": float(row["exams"]) if row["exams"] is not None else 0,
             "rate": float(row["final"]) if row["final"] is not None else 0
         }
-        return jsonify({"status": True, "data": [payload]})
+        return jsonify({"status": True, "data": [payload], **freshness_response(mysql_conn)})
     except Exception as e:
         return jsonify({"status": False, "error": str(e)}), 500
     finally:

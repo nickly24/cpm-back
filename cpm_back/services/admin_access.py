@@ -7,6 +7,11 @@ from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from cpm_back.auth.admin_permissions import SECTIONS
 
 
+class ExamReferencedUserError(ValueError):
+    """Deleting a delegated actor would detach retained examination audit."""
+    code = 'user_referenced_by_exam'
+
+
 @contextmanager
 def database(write=False):
     connection = get_db_connection()
@@ -158,6 +163,24 @@ def delete_user(user_id):
         cursor.execute('SELECT id FROM admin_role_users WHERE id=%s FOR UPDATE', (user_id,))
         if not cursor.fetchone():
             raise LookupError('Пользователь не найден')
+        # Actor IDs are role-specific. There is intentionally no incorrect FK
+        # from staff_admin IDs into admins. Check the pair before touching auth.
+        audit_references = (
+            ('exam_admin_commands', 'actor_role', 'actor_id'),
+            ('classic_exam_assignments', 'created_by_role', 'created_by'),
+            ('classic_exam_appeals', 'changed_by_role', 'changed_by_admin_id'),
+            ('classic_exam_question_import_sessions', 'created_by_role', 'created_by'),
+            ('classic_exam_assignment_import_sessions', 'created_by_role', 'created_by'),
+            ('outside_exam_result_import_sessions', 'created_by_role', 'created_by'),
+        )
+        for table, role_column, id_column in audit_references:
+            cursor.execute('''SELECT COUNT(*) AS present FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s''', (table,))
+            if not cursor.fetchone()['present']:
+                continue
+            cursor.execute(f"SELECT 1 FROM `{table}` WHERE `{role_column}`='staff_admin' AND `{id_column}`=%s LIMIT 1", (user_id,))
+            if cursor.fetchone():
+                raise ExamReferencedUserError('Администратор связан с историей экзаменов. Сначала удалите связанные экзаменационные данные или отключите аккаунт.')
         cursor.execute("DELETE FROM auth_users WHERE role='staff_admin' AND ref_id=%s", (user_id,))
         cursor.execute('DELETE FROM admin_role_users WHERE id=%s', (user_id,))
     return {'status': True}

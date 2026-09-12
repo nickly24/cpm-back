@@ -1,0 +1,630 @@
+{
+  "reportVersion": 1,
+  "checkedAt": "2026-09-12T09:10:21.505562+00:00",
+  "mode": "read_only",
+  "databaseModified": false,
+  "dataPreflightPassed": false,
+  "migrationAuthorizedByReport": false,
+  "blockers": [
+    "duplicate_exam_results",
+    "orphan_exam_results"
+  ],
+  "warnings": [
+    "migration_connection_must_enable_strict_sql_mode",
+    "no_examinators_for_classic_pilot",
+    "verify_packet_headroom_for_16MiB_json_payloads"
+  ],
+  "server": {
+    "version": "8.0.22-13",
+    "sqlMode": "",
+    "charset": "utf8",
+    "collation": "utf8_general_ci",
+    "timeZone": "SYSTEM",
+    "maxAllowedPacket": 16777216
+  },
+  "schema": {
+    "exams": {
+      "tableName": "exams",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `exams` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `name` varchar(60) NOT NULL,\n  `date` date NOT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_exams_date` (`date`)\n) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "exam_sessions": {
+      "tableName": "exam_sessions",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `exam_sessions` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `exam_id` int NOT NULL,\n  `student_id` int NOT NULL,\n  `val` double NOT NULL,\n  `points` double NOT NULL,\n  `examinator` varchar(100) NOT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_exam_sessions_exam_id` (`exam_id`),\n  KEY `idx_exam_sessions_student_id` (`student_id`)\n) ENGINE=InnoDB AUTO_INCREMENT=10581 DEFAULT CHARSET=utf8"
+    },
+    "directions": {
+      "tableName": "directions",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `directions` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `name` varchar(200) NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=38 DEFAULT CHARSET=utf8"
+    },
+    "students": {
+      "tableName": "students",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `students` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `full_name` varchar(50) NOT NULL,\n  `group_id` int DEFAULT NULL,\n  `school_id` int DEFAULT NULL,\n  `class` int NOT NULL,\n  `tg_name` varchar(30) NOT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_students_group_id` (`group_id`),\n  KEY `idx_students_full_name` (`full_name`),\n  KEY `idx_students_school_id` (`school_id`)\n) ENGINE=InnoDB AUTO_INCREMENT=2085 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "examinators": {
+      "tableName": "examinators",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `examinators` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `full_name` varchar(50) NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "admins": {
+      "tableName": "admins",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `admins` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `full_name` varchar(50) NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "auth_users": {
+      "tableName": "auth_users",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `auth_users` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `username` varchar(50) NOT NULL,\n  `ref_id` int NOT NULL,\n  `password` varchar(255) DEFAULT NULL,\n  `role` enum('student','proctor','admin','examinator','supervisor','staff_admin') NOT NULL,\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `username` (`username`)\n) ENGINE=InnoDB AUTO_INCREMENT=2305 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "admin_role_users": {
+      "tableName": "admin_role_users",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `admin_role_users` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `full_name` varchar(100) NOT NULL,\n  `role_id` int NOT NULL,\n  `is_active` tinyint(1) NOT NULL DEFAULT '1',\n  `session_version` int unsigned NOT NULL DEFAULT '1',\n  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  KEY `ix_admin_role_users_role` (`role_id`),\n  CONSTRAINT `fk_admin_role_user_role` FOREIGN KEY (`role_id`) REFERENCES `admin_roles` (`id`) ON DELETE RESTRICT,\n  CONSTRAINT `ck_admin_role_user_active` CHECK ((`is_active` in (0,1)))\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    "Allratings": {
+      "tableName": "Allratings",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `Allratings` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `student_id` int NOT NULL,\n  `exams` float NOT NULL,\n  `homework` float NOT NULL,\n  `tests` float NOT NULL,\n  `final` float NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=28371 DEFAULT CHARSET=utf8"
+    },
+    "rating_recalc_jobs": {
+      "tableName": "rating_recalc_jobs",
+      "engine": "InnoDB",
+      "ddl": "CREATE TABLE `rating_recalc_jobs` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `status` enum('queued','running','completed','failed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',\n  `date_from` date NOT NULL,\n  `date_to` date NOT NULL,\n  `created_by` int DEFAULT NULL COMMENT 'ID пользователя из JWT',\n  `created_by_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `started_at` datetime DEFAULT NULL,\n  `completed_at` datetime DEFAULT NULL,\n  `total_students` int NOT NULL DEFAULT '0',\n  `processed_count` int NOT NULL DEFAULT '0',\n  `successful` int NOT NULL DEFAULT '0',\n  `failed` int NOT NULL DEFAULT '0',\n  `skipped` int NOT NULL DEFAULT '0',\n  `message` text COLLATE utf8mb4_unicode_ci,\n  `errors` json DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_rating_recalc_status` (`status`),\n  KEY `idx_rating_recalc_created_at` (`created_at`)\n) ENGINE=InnoDB AUTO_INCREMENT=61 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    }
+  },
+  "counts": {
+    "exams": 5,
+    "results": 1422,
+    "students": 311,
+    "examinators": 0,
+    "ratings": 314
+  },
+  "fingerprints": {
+    "exams": "10009e71899c985f6669059319400d0f9b1ce58fe6b812814d4edc9abccb1af3",
+    "exam_sessions": "63ea642e2aeaaae00025a24e142ff7f66be9e675b6db112446b1022a96af7163"
+  },
+  "directionSuggestions": [
+    {
+      "examId": 53,
+      "legacyName": "Теория государства",
+      "candidateDirectionIds": [
+        6
+      ],
+      "suggestedDirectionId": 6,
+      "status": "exact_match"
+    },
+    {
+      "examId": 55,
+      "legacyName": "Теория права",
+      "candidateDirectionIds": [
+        5
+      ],
+      "suggestedDirectionId": 5,
+      "status": "exact_match"
+    },
+    {
+      "examId": 56,
+      "legacyName": "Семейное право",
+      "candidateDirectionIds": [
+        11
+      ],
+      "suggestedDirectionId": 11,
+      "status": "exact_match"
+    },
+    {
+      "examId": 57,
+      "legacyName": "Судебная власть",
+      "candidateDirectionIds": [
+        34
+      ],
+      "suggestedDirectionId": 34,
+      "status": "exact_match"
+    },
+    {
+      "examId": 58,
+      "legacyName": "Уголовное право",
+      "candidateDirectionIds": [
+        10
+      ],
+      "suggestedDirectionId": 10,
+      "status": "exact_match"
+    }
+  ],
+  "duplicateResults": [
+    {
+      "id": 9378,
+      "examId": 53,
+      "studentId": 1755,
+      "points": 12,
+      "grade": 5
+    },
+    {
+      "id": 10277,
+      "examId": 53,
+      "studentId": 1755,
+      "points": 5,
+      "grade": 4
+    },
+    {
+      "id": 10565,
+      "examId": 55,
+      "studentId": 1827,
+      "points": 12,
+      "grade": 5
+    },
+    {
+      "id": 10580,
+      "examId": 55,
+      "studentId": 1827,
+      "points": 6,
+      "grade": 5
+    },
+    {
+      "id": 9999,
+      "examId": 55,
+      "studentId": 1968,
+      "points": 6,
+      "grade": 5
+    },
+    {
+      "id": 10000,
+      "examId": 55,
+      "studentId": 1968,
+      "points": 6,
+      "grade": 5
+    }
+  ],
+  "orphanResults": [
+    {
+      "id": 9156,
+      "examId": 53,
+      "studentId": 2032,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9182,
+      "examId": 53,
+      "studentId": 1776,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9189,
+      "examId": 53,
+      "studentId": 1793,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9197,
+      "examId": 53,
+      "studentId": 1814,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9230,
+      "examId": 53,
+      "studentId": 2035,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9250,
+      "examId": 53,
+      "studentId": 1824,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9269,
+      "examId": 53,
+      "studentId": 2017,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9270,
+      "examId": 53,
+      "studentId": 2045,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9272,
+      "examId": 53,
+      "studentId": 2064,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9283,
+      "examId": 53,
+      "studentId": 2009,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9284,
+      "examId": 53,
+      "studentId": 1744,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9288,
+      "examId": 53,
+      "studentId": 2027,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9296,
+      "examId": 53,
+      "studentId": 1703,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9299,
+      "examId": 53,
+      "studentId": 1874,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9309,
+      "examId": 53,
+      "studentId": 1852,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9314,
+      "examId": 53,
+      "studentId": 1900,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9317,
+      "examId": 53,
+      "studentId": 1761,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9327,
+      "examId": 53,
+      "studentId": 1986,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9348,
+      "examId": 53,
+      "studentId": 1765,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9354,
+      "examId": 53,
+      "studentId": 1869,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9372,
+      "examId": 53,
+      "studentId": 1792,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9388,
+      "examId": 53,
+      "studentId": 1944,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9390,
+      "examId": 53,
+      "studentId": 1946,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9402,
+      "examId": 53,
+      "studentId": 1727,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9431,
+      "examId": 53,
+      "studentId": 1883,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9436,
+      "examId": 53,
+      "studentId": 1890,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9438,
+      "examId": 53,
+      "studentId": 1892,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9451,
+      "examId": 55,
+      "studentId": 1883,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9454,
+      "examId": 55,
+      "studentId": 2009,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9458,
+      "examId": 55,
+      "studentId": 1869,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9460,
+      "examId": 55,
+      "studentId": 2064,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9475,
+      "examId": 55,
+      "studentId": 1900,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9476,
+      "examId": 55,
+      "studentId": 2079,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9478,
+      "examId": 55,
+      "studentId": 2017,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9488,
+      "examId": 55,
+      "studentId": 1765,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9489,
+      "examId": 55,
+      "studentId": 1744,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9495,
+      "examId": 55,
+      "studentId": 2027,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9524,
+      "examId": 55,
+      "studentId": 1892,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9530,
+      "examId": 55,
+      "studentId": 2035,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9540,
+      "examId": 55,
+      "studentId": 1944,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9548,
+      "examId": 55,
+      "studentId": 1814,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9573,
+      "examId": 55,
+      "studentId": 2032,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9637,
+      "examId": 55,
+      "studentId": 1824,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9650,
+      "examId": 55,
+      "studentId": 1776,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9661,
+      "examId": 55,
+      "studentId": 1761,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9703,
+      "examId": 55,
+      "studentId": 1793,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9741,
+      "examId": 56,
+      "studentId": 1761,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9748,
+      "examId": 56,
+      "studentId": 1793,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9777,
+      "examId": 56,
+      "studentId": 2032,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9778,
+      "examId": 56,
+      "studentId": 1776,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9807,
+      "examId": 56,
+      "studentId": 1944,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9890,
+      "examId": 56,
+      "studentId": 2027,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9892,
+      "examId": 56,
+      "studentId": 2009,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9979,
+      "examId": 56,
+      "studentId": 1814,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9987,
+      "examId": 56,
+      "studentId": 1765,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 9997,
+      "examId": 56,
+      "studentId": 1892,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10021,
+      "examId": 57,
+      "studentId": 1761,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10124,
+      "examId": 57,
+      "studentId": 2009,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10207,
+      "examId": 57,
+      "studentId": 1793,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10251,
+      "examId": 57,
+      "studentId": 1765,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10371,
+      "examId": 58,
+      "studentId": 2009,
+      "missingExam": 0,
+      "missingStudent": 1
+    },
+    {
+      "id": 10564,
+      "examId": 58,
+      "studentId": 1761,
+      "missingExam": 0,
+      "missingStudent": 1
+    }
+  ],
+  "invalidGrades": [],
+  "invalidPoints": [],
+  "duplicateRatings": [],
+  "activeRatingJobs": [],
+  "pilotStudent": {
+    "studentId": 2081,
+    "accountCount": 1,
+    "existingResultCount": 0
+  },
+  "notVerified": [
+    "restorable_backup",
+    "migration_rehearsal",
+    "legacy_api_compatibility",
+    "deployment_readiness"
+  ]
+}

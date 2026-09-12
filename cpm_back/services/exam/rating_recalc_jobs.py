@@ -20,6 +20,11 @@ def _table_exists(cursor) -> bool:
 
 def recover_stale_rating_jobs() -> None:
     """Помечает зависшие задачи после перезапуска сервера."""
+    from cpm_back.services.exams.rating import enabled
+    if enabled():
+        from cpm_back.services.exams.rating_jobs import recover
+        recover()
+        return
     conn = None
     try:
         conn = get_db_connection()
@@ -110,6 +115,10 @@ def create_recalc_job(
     created_by: Optional[int] = None,
     created_by_name: Optional[str] = None,
 ) -> Dict[str, Any]:
+    from cpm_back.services.exams.rating import enabled
+    if enabled():
+        from cpm_back.services.exams.rating_jobs import create_job
+        return create_job(date_from, date_to, created_by, created_by_name)
     if has_active_recalc_job():
         raise ValueError("Уже выполняется пересчёт рейтинга. Дождитесь завершения или проверьте журнал.")
 
@@ -319,6 +328,12 @@ def _run_recalc_job(job_id: int) -> None:
 
 def enqueue_recalc_job(job_id: int) -> None:
     global _active_recalc_job_id
+    from cpm_back.services.exams.rating import enabled
+    if enabled():
+        from cpm_back.services.exams.rating_jobs import run
+        # DB lease, not a process-local flag, arbitrates worker ownership.
+        threading.Thread(target=run, args=(job_id,), name=f"rating-recalc-{job_id}", daemon=True).start()
+        return
 
     def _target():
         _run_recalc_job(job_id)
