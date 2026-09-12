@@ -1,8 +1,9 @@
+from .homework_access import HomeworkAccessError, ensure_student_scope, ensure_legacy_editable
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 from datetime import datetime, date
 
 
-def edit_homework_session(session_id, result=None, date_pass=None, status=None, student_id=None, homework_id=None):
+def edit_homework_session(session_id, result=None, date_pass=None, status=None, student_id=None, homework_id=None, actor=None):
     connection = None
     try:
         connection = get_db_connection()
@@ -29,6 +30,9 @@ def edit_homework_session(session_id, result=None, date_pass=None, status=None, 
         session = cursor.fetchone()
         if not session:
             return {"status": False, "error": "session_not_found"}
+
+        ensure_student_scope(cursor, actor, session['student_id'], lock=True)
+        ensure_legacy_editable(cursor, session['homework_id'], session['student_id'])
 
         if status is not None:
             try:
@@ -149,6 +153,10 @@ def edit_homework_session(session_id, result=None, date_pass=None, status=None, 
             "date_pass": updated_session["date_pass"] if updated_session else None
         }
 
+    except HomeworkAccessError as err:
+        if connection:
+            connection.rollback()
+        return err.response()
     except Exception as err:
         if connection:
             connection.rollback()
@@ -156,5 +164,4 @@ def edit_homework_session(session_id, result=None, date_pass=None, status=None, 
     finally:
         if connection:
             close_db_connection(connection)
-
 

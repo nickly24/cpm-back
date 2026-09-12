@@ -28,6 +28,12 @@ from cpm_back.services.serv import (
 homework_bp = Blueprint('homework', __name__, url_prefix='/api')
 
 
+def _homework_response(answer):
+    payload = dict(answer)
+    status = payload.pop('http_status', 200 if payload.get('status') else 400)
+    return jsonify(payload), status
+
+
 @homework_bp.route('/get-homeworks')
 @require_auth
 def list_homeworks(current_user=None):
@@ -53,8 +59,8 @@ def list_homeworks(current_user=None):
 @require_role('admin', 'proctor')
 def proctor_sessions(current_user=None):
     data = request.get_json()
-    answer = get_proctor_homework_sessions(data.get('proctorId'), data.get('homeworkId'))
-    return jsonify(answer)
+    answer = get_proctor_homework_sessions(data.get('proctorId'), data.get('homeworkId'), actor=current_user)
+    return _homework_response(answer)
 
 
 @homework_bp.route('/pass_homework', methods=['POST'])
@@ -75,8 +81,8 @@ def pass_hw(current_user=None):
     student_id = data.get('studentId')
     homework_id = data.get('homeworkId')
     manual_result = data.get('result')
-    answer = pass_homework(session_id, date_object, student_id, homework_id, manual_result)
-    return jsonify(answer)
+    answer = pass_homework(session_id, date_object, student_id, homework_id, manual_result, actor=current_user)
+    return _homework_response(answer)
 
 
 @homework_bp.route('/pass_homework_bulk', methods=['POST'])
@@ -100,8 +106,8 @@ def pass_hw_bulk(current_user=None):
             manual_result = int(manual_result)
         except (TypeError, ValueError):
             return jsonify({'status': False, 'error': 'invalid_result'}), 400
-    answer = pass_homework_bulk(proctor_id, homework_id, date_object, manual_result)
-    return jsonify(answer), 200 if answer.get('status') else 400
+    answer = pass_homework_bulk(proctor_id, homework_id, date_object, manual_result, actor=current_user)
+    return _homework_response(answer)
 
 
 @homework_bp.route('/get-homeworks-student', methods=['POST'])
@@ -120,8 +126,8 @@ def student_homeworks(current_user=None):
         page = max(1, page)
     except (TypeError, ValueError):
         page, limit = 1, (500 if not use_pagination else 20)
-    answer = get_student_homework_dashboard(student_id, page=page, limit=limit, homework_type=homework_type or None)
-    return jsonify(answer)
+    answer = get_student_homework_dashboard(student_id, page=page, limit=limit, homework_type=homework_type or None, actor=current_user)
+    return _homework_response(answer)
 
 
 @homework_bp.route('/homeworks/student-with-sessions', methods=['GET'])
@@ -204,8 +210,9 @@ def edit_session(current_user=None):
         status=data.get('status'),
         student_id=student_id,
         homework_id=homework_id,
+        actor=current_user,
     )
-    return jsonify(answer), 200 if answer.get('status') else 400
+    return _homework_response(answer)
 
 
 @homework_bp.route('/homework/<int:homework_id>', methods=['GET'])

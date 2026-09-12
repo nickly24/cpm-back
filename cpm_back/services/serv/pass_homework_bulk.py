@@ -1,15 +1,17 @@
+from .homework_access import HomeworkAccessError, scoped_proctor_id
 from cpm_back.db.mysql_pool import close_db_connection, get_db_connection
 
 from .pass_homework import pass_homework
 
 
-def pass_homework_bulk(proctor_id, homework_id, date_pass, result=None):
+def pass_homework_bulk(proctor_id, homework_id, date_pass, result=None, actor=None):
     """
     Отметить сдачу всем ученикам группы проктора, у кого ещё нет сдачи по этому ДЗ.
     result: если передан — одинаковый балл всем; иначе авто по дате и дедлайну.
     """
     connection = None
     try:
+        proctor_id = scoped_proctor_id(actor, proctor_id)
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
@@ -46,11 +48,12 @@ def pass_homework_bulk(proctor_id, homework_id, date_pass, result=None):
                 student_id=row["student_id"],
                 homework_id=homework_id,
                 result=result,
+                actor=actor,
             )
             if answer.get("status"):
                 passed += 1
             else:
-                errors.append({"student_id": row["student_id"], "error": "pass_failed"})
+                errors.append({"student_id": row["student_id"], "error": answer.get("error", "pass_failed")})
 
         return {
             "status": True,
@@ -58,8 +61,11 @@ def pass_homework_bulk(proctor_id, homework_id, date_pass, result=None):
             "total": len(pending),
             "skipped": len(rows) - len(pending),
             "errors": errors or None,
+            "skipped_files": sum(error["error"] == "use_file_review" for error in errors),
         }
 
+    except HomeworkAccessError as err:
+        return err.response()
     except Exception as err:
         if connection:
             connection.rollback()

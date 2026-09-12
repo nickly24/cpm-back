@@ -1,7 +1,8 @@
+from .homework_access import HomeworkAccessError, ensure_student_scope, ensure_legacy_editable
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 import datetime
 
-def pass_homework(session_id, date_pass, student_id=None, homework_id=None, result=None):
+def pass_homework(session_id, date_pass, student_id=None, homework_id=None, result=None, actor=None):
     connection = None
     try:
         connection = get_db_connection()
@@ -51,6 +52,9 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
                 if result < 0:
                     result = 0
 
+        ensure_student_scope(cursor, actor, student_id, lock=True)
+        ensure_legacy_editable(cursor, homework_id, student_id)
+
         # 4. Обновляем или создаем homework_session
         if session_id:
             # Если сессия существует, обновляем её
@@ -66,6 +70,7 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
             insert_query = """
                 INSERT INTO homework_sessions (status, result, homework_id, student_id, date_pass)
                 VALUES (1, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),status=1,result=VALUES(result),date_pass=VALUES(date_pass)
             """
             cursor.execute(insert_query, (result, homework_id, student_id, date_pass))
             saved_session_id = cursor.lastrowid
@@ -75,6 +80,10 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
         print(f"Оценка выставлена: {result} баллов")
         return {"status": True, "result": result, "sessionId": saved_session_id}
 
+    except HomeworkAccessError as err:
+        if connection:
+            connection.rollback()
+        return err.response()
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
         if connection:
@@ -84,5 +93,4 @@ def pass_homework(session_id, date_pass, student_id=None, homework_id=None, resu
     finally:
         if connection:
             close_db_connection(connection)
-
 

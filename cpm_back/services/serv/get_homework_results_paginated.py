@@ -1,3 +1,4 @@
+from .homework_access import attach_file_submissions
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
 def get_homework_results_paginated(page=1, limit=10, filters=None):
@@ -120,6 +121,7 @@ def get_homework_results_paginated(page=1, limit=10, filters=None):
             
             cursor.execute(students_query, (homework_id, homework_id))
             students = cursor.fetchall()
+            attach_file_submissions(cursor, students, homework_id=homework_id)
 
             # Формируем результат для задания
             homework_data = {
@@ -231,6 +233,7 @@ def get_homework_students(homework_id, page=1, limit=50, filters=None):
         query_params = [homework_id] + filter_params + [limit, offset]
         cursor.execute(students_query, query_params)
         students = cursor.fetchall()
+        attach_file_submissions(cursor, students, homework_id=homework_id)
 
         # Получаем общее количество студентов
         count_query = f"""

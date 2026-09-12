@@ -1,7 +1,8 @@
+from .homework_access import HomeworkAccessError, ensure_student_scope, attach_file_submissions
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
 
-def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=None):
+def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=None, actor=None):
     """
     Домашки студента с пагинацией и опциональным фильтром по типу (ОВ, ДЗНВ).
     Один запрос с LEFT JOIN — без N+1.
@@ -10,6 +11,7 @@ def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=N
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        ensure_student_scope(cursor, actor, student_id)
 
         where_parts = ["h.published = 1"]
         count_params = []
@@ -69,6 +71,8 @@ def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=N
                 "result": score,
             })
 
+        attach_file_submissions(cursor, result_list, student_id=student_id)
+
         total_pages = (total + limit - 1) // limit if total else 1
 
         return {
@@ -82,6 +86,8 @@ def get_student_homework_dashboard(student_id, page=1, limit=20, homework_type=N
             },
         }
 
+    except HomeworkAccessError as err:
+        return err.response()
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
         return {"status": False, "res": [], "pagination": None}

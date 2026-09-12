@@ -1,8 +1,10 @@
+from .homework_access import HomeworkAccessError, scoped_proctor_id, attach_file_submissions
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
-def get_proctor_homework_sessions(proctor_id, homework_id):
+def get_proctor_homework_sessions(proctor_id, homework_id, actor=None):
     connection = None
     try:
+        proctor_id = scoped_proctor_id(actor, proctor_id)
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
         # 1. Получаем group_id проектора
@@ -56,8 +58,11 @@ def get_proctor_homework_sessions(proctor_id, homework_id):
                 }
             result_with_names.append(session_data)
 
+        attach_file_submissions(cursor, result_with_names, homework_id=homework_id)
         return {"status": True, "res": result_with_names}
 
+    except HomeworkAccessError as err:
+        return err.response()
     except Exception as err:
         print(f"Ошибка базы данных: {err}")
         return {"status": False, "res": []}
