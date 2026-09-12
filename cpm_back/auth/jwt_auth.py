@@ -5,7 +5,7 @@ JWT: генерация, проверка, декораторы авториза
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, g
 
 
 def _get_secret():
@@ -25,18 +25,27 @@ def generate_token(user_data):
         'exp': datetime.utcnow() + timedelta(hours=_get_expiration_hours()),
         'iat': datetime.utcnow()
     }
+    if user_data.get('role') == 'staff_admin':
+        payload['session_version'] = user_data['session_version']
     return jwt.encode(payload, _get_secret(), algorithm='HS256')
 
 
 def verify_token(token):
     try:
         payload = jwt.decode(token, _get_secret(), algorithms=['HS256'])
-        return {
+        user = {
             'role': payload.get('role'),
             'id': payload.get('id'),
             'full_name': payload.get('full_name'),
             'group_id': payload.get('group_id')
         }
+        if user['role'] == 'staff_admin':
+            version = payload.get('session_version')
+            if type(version) is not int or version < 1:
+                return None
+            from cpm_back.services.admin_access import load_staff_admin
+            return load_staff_admin(user['id'], version)
+        return user
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
 
@@ -54,10 +63,13 @@ def get_token_from_request():
 
 
 def get_current_user():
+    if hasattr(g, '_current_user'):
+        return g._current_user
     token = get_token_from_request()
     if not token:
         return None
-    return verify_token(token)
+    g._current_user = verify_token(token)
+    return g._current_user
 
 
 def require_auth(f):
@@ -77,7 +89,8 @@ def require_role(*allowed_roles):
         @require_auth
         def decorated_function(*args, **kwargs):
             user = kwargs.get('current_user')
-            if not user or user.get('role') not in allowed_roles:
+            from .admin_permissions import delegated_role_allowed
+            if not user or (user.get('role') not in allowed_roles and not delegated_role_allowed(user, allowed_roles)):
                 return jsonify({'status': False, 'error': 'Недостаточно прав доступа'}), 403
             return f(*args, **kwargs)
         return decorated_function
@@ -113,7 +126,8 @@ def require_self_or_role(user_id_param='student_id', *allowed_roles):
                 user_id = int(user.get('id'))
             except (ValueError, TypeError):
                 return jsonify({'status': False, 'error': 'Неверный формат ID'}), 400
-            if user_id == requested_id or user.get('role') in allowed_roles:
+            from .admin_permissions import delegated_role_allowed
+            if (user_id == requested_id and user.get('role') != 'staff_admin') or user.get('role') in allowed_roles or delegated_role_allowed(user, allowed_roles):
                 return f(*args, **kwargs)
             return jsonify({'status': False, 'error': 'Недостаточно прав доступа'}), 403
         return decorated_function

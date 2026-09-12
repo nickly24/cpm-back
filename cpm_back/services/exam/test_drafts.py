@@ -175,6 +175,12 @@ def update_test_draft(draft_id, payload, current_user=None):
     return get_test_draft(draft_id)
 
 
+def _owns_lock(draft, user):
+    user = user or {}
+    return (str(draft.get("lockedBy")) == str(user.get("id"))
+            and (draft.get("lockedByRole") or "admin") == user.get("role", "admin"))
+
+
 def lock_test_draft(draft_id, current_user=None, force=False):
     db = get_mongo_db()
     user_id = (current_user or {}).get("id")
@@ -186,7 +192,7 @@ def lock_test_draft(draft_id, current_user=None, force=False):
         return {"success": False, "error": "draft_not_found"}
     locked_until = _parse_dt(existing.get("lockedUntil"))
     locked_by = existing.get("lockedBy")
-    if locked_by and str(locked_by) != str(user_id) and locked_until and locked_until > now and not force:
+    if locked_by and not _owns_lock(existing, current_user) and locked_until and locked_until > now and not force:
         return {
             "success": False,
             "error": "locked",
@@ -198,6 +204,7 @@ def lock_test_draft(draft_id, current_user=None, force=False):
         {"_id": ObjectId(draft_id)},
         {"$set": {
             "lockedBy": user_id,
+            "lockedByRole": (current_user or {}).get("role", "admin"),
             "lockedByName": user_name,
             "lockedUntil": until.isoformat() + "Z",
         }},
@@ -207,12 +214,11 @@ def lock_test_draft(draft_id, current_user=None, force=False):
 
 def unlock_test_draft(draft_id, current_user=None):
     db = get_mongo_db()
-    user_id = (current_user or {}).get("id")
     query = {"_id": ObjectId(draft_id)}
     existing = db.test_drafts.find_one(query)
     if not existing:
         return {"success": False, "error": "draft_not_found"}
-    if existing.get("lockedBy") and str(existing.get("lockedBy")) != str(user_id):
+    if existing.get("lockedBy") and not _owns_lock(existing, current_user):
         return {"success": False, "error": "locked_by_other"}
     db.test_drafts.update_one(
         query,
@@ -234,13 +240,12 @@ def delete_test_draft(draft_id, current_user=None):
     if existing.get("status") != "active":
         return {"success": False, "error": "draft_not_active"}
 
-    user_id = (current_user or {}).get("id")
     locked_by = existing.get("lockedBy")
     locked_until = _parse_dt(existing.get("lockedUntil"))
     now = datetime.utcnow()
     if (
         locked_by
-        and str(locked_by) != str(user_id)
+        and not _owns_lock(existing, current_user)
         and locked_until
         and locked_until > now
     ):

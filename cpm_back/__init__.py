@@ -71,6 +71,11 @@ def _safe_request_body():
 
 def create_app():
     app = Flask(__name__)
+    from .auth.admin_permissions import enforce_admin_permissions, redact_directory_response
+    app.before_request(enforce_admin_permissions)
+    app.after_request(redact_directory_response)
+    from .blueprints.admin_access_bp import admin_access_bp
+    app.register_blueprint(admin_access_bp)
     app.config['SECRET_KEY'] = config.SECRET_KEY
     app.config['ENV'] = config.ENV
     app.config['JWT_SECRET_KEY'] = config.JWT_SECRET_KEY

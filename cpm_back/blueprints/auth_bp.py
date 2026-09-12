@@ -47,5 +47,8 @@ def aun(current_user=None):
         'role': current_user.get('role'),
         'entity_id': current_user.get('id'),
         'full_name': current_user.get('full_name'),
-        'group_id': current_user.get('group_id')
+        'group_id': current_user.get('group_id'),
+        'role_id': current_user.get('role_id'),
+        'role_name': current_user.get('role_name'),
+        'permissions': current_user.get('permissions', {}),
     })

@@ -11,6 +11,7 @@ ROLE_TABLES = {
     'examinator': 'examinators',
     'admin': 'admins',
     'supervisor': 'supervisors',
+    'staff_admin': 'admin_role_users',
 }
 
 
@@ -36,10 +37,17 @@ def auth(username, password):
             (username,)
         )
         user_row = cur.fetchone()
-        if not user_row or not _password_matches(user_row.get('password'), password):
+        if not user_row:
             return {'status': False}
-
         role = user_row.get('role')
+        matches = (check_password_hash(user_row.get('password') or '', password)
+                   if role == 'staff_admin' else _password_matches(user_row.get('password'), password))
+        if not matches:
+            return {'status': False}
+        if role == 'staff_admin':
+            from cpm_back.services.admin_access import load_staff_admin
+            delegated = load_staff_admin(user_row.get('ref_id'))
+            return {'status': bool(delegated), 'res': delegated} if delegated else {'status': False}
         table = ROLE_TABLES.get(role)
         if not table:
             return {'status': False}

@@ -1455,7 +1455,7 @@ def _admin_answer_view(raw_answer, question):
     return view
 
 
-def get_attempt_admin_detail(attempt_id, brief=False):
+def get_attempt_admin_detail(attempt_id, brief=False, read_only=False):
     try:
         doc = _collection().find_one({"_id": ObjectId(attempt_id)})
     except Exception:
@@ -1463,7 +1463,8 @@ def get_attempt_admin_detail(attempt_id, brief=False):
     if not doc:
         return {"success": False, "error": "attempt_not_found"}
 
-    doc = _mark_expired_if_needed(doc)
+    if not read_only:
+        doc = _mark_expired_if_needed(doc)
     if brief:
         return {
             "success": True,

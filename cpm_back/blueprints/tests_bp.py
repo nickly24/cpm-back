@@ -450,7 +450,7 @@ def get_session(session_id, current_user=None):
     session = get_test_session_by_id(session_id)
     if not session:
         return jsonify({"error": "Test session not found"}), 404
-    if current_user.get('role') != 'admin' and str(session.get('studentId')) != str(current_user.get('id')):
+    if current_user.get('role') not in ('admin', 'staff_admin') and str(session.get('studentId')) != str(current_user.get('id')):
         return jsonify({'status': False, 'error': 'Недостаточно прав доступа'}), 403
     return jsonify(session)
 
@@ -599,7 +599,7 @@ def session_stats(session_id, current_user=None):
     session = get_test_session_by_id(session_id)
     if not session:
         return jsonify({"error": "Test session not found"}), 404
-    if current_user.get('role') != 'admin' and str(session.get('studentId')) != str(current_user.get('id')):
+    if current_user.get('role') not in ('admin', 'staff_admin') and str(session.get('studentId')) != str(current_user.get('id')):
         return jsonify({'status': False, 'error': 'Недостаточно прав доступа'}), 403
     stats = get_test_session_stats(session_id)
     if stats:
@@ -623,7 +623,7 @@ def session_review(session_id, current_user=None):
     if not session:
         return jsonify({'success': False, 'error': 'session_not_found'}), 404
     role = current_user.get('role')
-    if role != 'admin' and str(session.get('studentId')) != str(current_user.get('id')):
+    if role not in ('admin', 'staff_admin') and str(session.get('studentId')) != str(current_user.get('id')):
         return jsonify({'success': False, 'error': 'forbidden'}), 403
     if role == 'student' and not can_show_correct_answers(role, session.get('testId')):
         return jsonify({'success': False, 'error': 'results_hidden'}), 403

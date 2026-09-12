@@ -16,7 +16,7 @@ def get_test_visible(test_id):
 
 
 def can_show_correct_answers(role, test_id):
-    if role == "admin":
+    if role in ("admin", "staff_admin"):
         return True
     if role != "student":
         return False

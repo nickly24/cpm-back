@@ -190,7 +190,7 @@ def attempt_submit(attempt_id, current_user=None):
 @test_attempts_bp.route('/test-attempt/<attempt_id>/admin', methods=['GET'])
 @require_role('admin')
 def admin_attempt_detail(attempt_id, current_user=None):
-    result = get_test_attempt_admin_detail(attempt_id)
+    result = get_test_attempt_admin_detail(attempt_id, read_only=current_user.get('role') == 'staff_admin')
     if not result.get('success'):
         return jsonify(result), 404
     return jsonify(result)

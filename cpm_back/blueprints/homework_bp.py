@@ -29,7 +29,8 @@ homework_bp = Blueprint('homework', __name__, url_prefix='/api')
 
 
 @homework_bp.route('/get-homeworks')
-def list_homeworks():
+@require_auth
+def list_homeworks(current_user=None):
     page = request.args.get('page', type=int, default=1)
     limit = request.args.get('limit', type=int, default=50)
     homework_type = request.args.get('type', default=None)

@@ -1,6 +1,7 @@
 """
 Экзамены и посещаемость (exam): список экзаменов, сессии, посещаемость студента за месяц.
 """
+from cpm_back.auth import require_auth
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.exam.get_exams import (
@@ -28,7 +29,8 @@ def _uses_pagination():
 
 
 @exams_bp.route('/get-all-exams', methods=['GET'])
-def list_exams():
+@require_auth
+def list_exams(current_user=None):
     if _uses_pagination():
         return jsonify(
             get_all_exams_paginated(

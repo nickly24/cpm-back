@@ -2,6 +2,7 @@
 Новая модель посещаемости: дни занятий + привязка посещаемости к ним.
 Роуты запасные, старые /api/get-attendance-by-month и т.д. не трогаем.
 """
+from cpm_back.auth import require_auth
 from flask import Blueprint, request, jsonify
 from cpm_back.auth import require_role, require_self_or_role
 from cpm_back.services.class_days import (
@@ -23,7 +24,8 @@ class_days_bp = Blueprint("class_days", __name__, url_prefix="/api")
 
 # --- Справочник типов посещения (доступен всем авторизованным для отображения) ---
 @class_days_bp.route("/attendance-types", methods=["GET"])
-def attendance_types_list():
+@require_auth
+def attendance_types_list(current_user=None):
     """Список типов посещения (1–8) для форм и отчётов."""
     return jsonify(get_all_attendance_types())
 

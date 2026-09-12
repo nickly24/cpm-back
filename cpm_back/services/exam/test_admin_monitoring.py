@@ -201,8 +201,8 @@ def get_test_admin_overview(test_id):
     }
 
 
-def get_test_attempt_admin_detail(attempt_id):
-    return get_attempt_admin_detail(attempt_id)
+def get_test_attempt_admin_detail(attempt_id, read_only=False):
+    return get_attempt_admin_detail(attempt_id, read_only=read_only)
 
 
 def delete_test_attempt_admin(attempt_id):
