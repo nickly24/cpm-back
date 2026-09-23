@@ -29,11 +29,30 @@ def _not_found_status(result):
     err = result.get("error", "")
     if err in ("Section not found", "Theme not found", "Card not found", "Batch not found"):
         return 404
-    if err == "answers_hidden":
+    if err in ("exam_not_found", "part_not_found", "question_not_found"):
+        return 404
+    if err == "content_changed":
+        return 409
+    if err in ("exam_empty", "wrong_exam_type"):
+        return 422
+    if err in ("answers_hidden", "training_disabled"):
         return 403
     if "уже" in err.lower() or "already" in err.lower():
         return 409
     return 400
+
+
+def _exam_owner(current_user, student_id):
+    """The legacy card decorator also permits staff; exam progress is student-only."""
+    if not current_user or current_user.get("role") != "student" or str(current_user.get("id")) != str(student_id):
+        return jsonify({"success": False, "error": "forbidden", "message": "Недостаточно прав доступа"}), 403
+    return None
+
+
+@cards_bp.after_request
+def private_training_response(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @cards_bp.route("/get-training-tree/<int:student_id>", methods=["GET"])
@@ -74,8 +93,12 @@ def direction_sections_route(student_id, direction_id, current_user=None):
 )
 @require_self_or_role("student_id", "admin", "proctor")
 def section_study_view_route(student_id, section_kind, section_ref_id, current_user=None):
-    if section_kind not in ("manual", "test"):
+    if section_kind not in ("manual", "test", "exam"):
         return jsonify({"success": False, "error": "Invalid section kind"}), 400
+    if section_kind == "exam":
+        denied = _exam_owner(current_user, student_id)
+        if denied:
+            return denied
     result = get_section_study_view(student_id, section_kind, section_ref_id)
     if not result.get("success"):
         return jsonify(result), _not_found_status(result)
@@ -90,14 +113,18 @@ def section_study_view_route(student_id, section_kind, section_ref_id, current_u
 def section_study_settings_route(
     student_id, section_kind, section_ref_id, current_user=None
 ):
-    if section_kind not in ("manual", "test"):
+    if section_kind not in ("manual", "test", "exam"):
         return jsonify({"success": False, "error": "Invalid section kind"}), 400
+    if section_kind == "exam":
+        denied = _exam_owner(current_user, student_id)
+        if denied:
+            return denied
     data = request.get_json() or {}
     result = update_section_study_settings(
         student_id, section_kind, section_ref_id, data
     )
     if not result.get("success"):
-        return jsonify(result), 400
+        return jsonify(result), _not_found_status(result)
     return jsonify(result)
 
 
@@ -109,8 +136,12 @@ def section_study_settings_route(
 def section_batch_route(
     student_id, section_kind, section_ref_id, batch_index, current_user=None
 ):
-    if section_kind not in ("manual", "test"):
+    if section_kind not in ("manual", "test", "exam"):
         return jsonify({"success": False, "error": "Invalid section kind"}), 400
+    if section_kind == "exam":
+        denied = _exam_owner(current_user, student_id)
+        if denied:
+            return denied
     study_mode = request.args.get("study_mode")
     result = get_section_batch_cards(
         student_id,
@@ -142,8 +173,12 @@ def mark_card_learned_route(current_user=None):
             }
         ), 400
 
-    if section_kind not in ("manual", "test"):
+    if section_kind not in ("manual", "test", "exam"):
         return jsonify({"success": False, "error": "Invalid section kind"}), 400
+    if section_kind == "exam" or str(card_ref).startswith("exam:"):
+        denied = _exam_owner(current_user, student_id)
+        if denied:
+            return denied
 
     result = mark_section_card_learned(
         student_id, section_kind, str(section_ref_id), card_ref, fingerprint
@@ -158,6 +193,10 @@ def mark_card_learned_route(current_user=None):
 )
 @require_self_or_role("student_id", "admin", "proctor")
 def unmark_card_learned_route(student_id, card_ref, current_user=None):
+    if str(card_ref).startswith("exam:"):
+        denied = _exam_owner(current_user, student_id)
+        if denied:
+            return denied
     result = unmark_card_learned(student_id, card_ref)
     if not result.get("success"):
         return jsonify(result), _not_found_status(result)
@@ -167,7 +206,8 @@ def unmark_card_learned_route(student_id, card_ref, current_user=None):
 @cards_bp.route("/get-admin-training-catalog", methods=["GET"])
 @require_role("admin")
 def get_admin_training_catalog_route(current_user=None):
-    result = get_admin_training_catalog()
+    from cpm_back.auth.admin_permissions import has_permission
+    result = get_admin_training_catalog(include_exams=has_permission(current_user, "exams", "view"))
     if not result.get("success"):
         return jsonify(result), 500
     return jsonify(result)

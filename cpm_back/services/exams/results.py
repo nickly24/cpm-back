@@ -770,6 +770,8 @@ def delete_exam(db, exam_id, actor):
     lock_exam(db, exam_id)
     snapshot = _exam_delete_snapshot(db, exam_id)
     verify_confirmation(actor, ["exam", exam_id], digest(snapshot))
+    from cpm_back.services.cards.exam_training import delete_exam_progress
+    delete_exam_progress(db.cursor, exam_id)
     # Explicit ordering releases RESTRICT links from attempts and definition usage.
     db.execute("DELETE FROM classic_exam_attempts WHERE exam_id=%s", (exam_id,))
     _purge_unused_definitions(db, exam_id)
@@ -807,6 +809,9 @@ def _student_current(db, row, members):
 
 STUDENT_SELECT = (
     """SELECT e.id exam_id,e.exam_type,e.direction_id,COALESCE(d.name,e.name) direction_name,
+    (e.training_enabled=1 AND e.exam_type='classic' AND EXISTS
+      (SELECT 1 FROM classic_exam_questions tq WHERE tq.exam_id=e.id
+       AND CHAR_LENGTH(TRIM(tq.question_text))>0 AND CHAR_LENGTH(TRIM(tq.answer_text))>0)) training_available,
     e.date,s.start_at,s.end_at,o.val outside_points,o.points outside_grade,o.examinator,
     a.id attempt_id,a.attempt_no,a.raw_total,a.rounded_total,a.max_score,a.completed_at,
     COALESCE(ap.new_grade,a.calculated_grade) effective_grade,ap.id latest_appeal_id
@@ -828,6 +833,7 @@ def _student_base(row):
         "examType": row["exam_type"],
         "directionId": row["direction_id"],
         "directionName": row["direction_name"],
+        "trainingEnabled": bool(row.get("training_available")),
     }
     if row["exam_type"] == "classic":
         result.update({"startAt": iso(row["start_at"]), "endAt": iso(row["end_at"])})

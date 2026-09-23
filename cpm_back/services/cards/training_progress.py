@@ -110,7 +110,7 @@ def build_batches(cards, batch_size):
 def get_study_settings(cursor, student_id, section_kind, section_ref_id):
     cursor.execute(
         """
-        SELECT batch_size, last_batch_index, study_mode
+        SELECT batch_size, last_batch_index, study_mode, last_part_id
         FROM student_section_study_settings
         WHERE student_id = %s AND section_kind = %s AND section_ref_id = %s
         """,
@@ -122,11 +122,13 @@ def get_study_settings(cursor, student_id, section_kind, section_ref_id):
             "batch_size": 10,
             "last_batch_index": None,
             "study_mode": "unlearned",
+            "last_part_id": None,
         }
     return {
         "batch_size": int(row["batch_size"] or 10),
         "last_batch_index": row["last_batch_index"],
         "study_mode": row.get("study_mode") or "unlearned",
+        "last_part_id": row.get("last_part_id"),
     }
 
 

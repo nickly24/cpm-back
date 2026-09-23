@@ -5,6 +5,7 @@ from .training_cards import (
     get_section_batch_cards,
     update_section_study_settings,
     mark_section_card_learned,
+    unmark_card_learned,
     get_admin_training_catalog,
     create_training_theme,
     update_training_theme,
@@ -15,7 +16,6 @@ from .training_cards import (
     update_card,
     delete_card,
 )
-from .training_progress import unmark_card_learned
 
 __all__ = [
     "get_training_tree",

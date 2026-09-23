@@ -8,6 +8,7 @@ from decimal import Decimal
 import importlib
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import types
@@ -42,6 +43,13 @@ class ClassicResultTests(unittest.TestCase):
     def setUp(self):
         migration_fixture.LocalMySQLMigrationTests.setUp(self)
         migration.run_migrations(self.connection, apply=True)
+        # Only CREATE the historical progress tables; migration 013 also contains
+        # destructive cleanup and must never be executed as part of this fixture.
+        historical = (migration_fixture.ROOT / "migrations/013_training_unification.sql").read_text()
+        for sql in re.findall(r"CREATE TABLE IF NOT EXISTS student_(?:card_progress|section_study_settings)\s*\([\s\S]*?;", historical):
+            self.query(sql)
+        from scripts.exam_training_migration import run_migration
+        run_migration(self.connection, apply=True)
         self.db = common.UnitOfWork(self.connection)
         self.addCleanup(self.db.cursor.close)
         self.db.execute(

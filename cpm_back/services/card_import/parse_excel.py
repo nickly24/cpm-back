@@ -30,13 +30,17 @@ def _map_headers(header_row: List[Any]) -> Dict[str, int]:
     return mapping
 
 
+def normalize_cell_text(value: Any) -> str:
+    """Keep a cell as one text value, including its internal blank lines."""
+    if value is None:
+        return ""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _cell_value(row: tuple, index: Optional[int]) -> str:
     if index is None or index >= len(row):
         return ""
-    value = row[index]
-    if value is None:
-        return ""
-    return str(value).strip()
+    return normalize_cell_text(row[index]).strip()
 
 
 def _row_is_empty(row: tuple) -> bool:

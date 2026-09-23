@@ -130,6 +130,39 @@ def exam_direction(exam_id, actor):
     )
 
 
+@exams_v2_bp.route("/<int:exam_id>/training", methods=["GET", "PATCH"])
+@endpoint(*ADMIN)
+def exam_training_settings(exam_id, actor):
+    if request.method == "GET":
+        with transaction() as db:
+            lock_exam(db, exam_id, "classic", True)
+            return admin.training_summary(db, exam_id)
+    payload = body()
+    return admin_mutation(
+        actor, exam_id, payload,
+        lambda db, exam: (admin.update_training(db, exam, payload), {"examId": exam_id}),
+        lambda db, receipt: admin.training_summary(db, exam_id), "classic",
+    )
+
+
+@exams_v2_bp.get("/<int:exam_id>/training/preview")
+@endpoint(*ADMIN)
+def exam_training_preview(exam_id, actor):
+    from cpm_back.services.cards.exam_training import study_view, TrainingError, parse_scope
+
+    ref = request.args.get("section_ref_id", str(exam_id))
+    if request.args.get("part_id") is not None:
+        ref = f"{exam_id}:{query_int(request.args['part_id'], 'part_id')}"
+    try:
+        if parse_scope(ref)[0] != exam_id:
+            fail("part_not_found", "Часть экзамена не найдена", 404)
+        with transaction() as db:
+            lock_exam(db, exam_id, "classic", True)
+            return study_view(db.cursor, None, ref, preview=True)
+    except TrainingError as exc:
+        fail(exc.code, exc.message, 404 if exc.code.endswith("not_found") else 400, **exc.details)
+
+
 @exams_v2_bp.get("/lookups/<kind>")
 @endpoint(*ADMIN)
 def account_lookup(kind, actor):
@@ -227,6 +260,8 @@ def part_detail(exam_id, part_id, actor):
         verify_confirmation(
             actor, {"examId": exam_id, "partId": part_id}, preview["fingerprint"]
         )
+        from cpm_back.services.cards.exam_training import delete_part_progress
+        delete_part_progress(db.cursor, exam_id, part_id)
         db.execute(
             "UPDATE classic_exam_settings SET tie_breaker_part_id=NULL WHERE exam_id=%s AND tie_breaker_part_id=%s",
             (exam_id, part_id),
@@ -331,6 +366,8 @@ def question_detail(exam_id, question_id, actor):
             db, "classic_exam_questions", question_id, exam_id, "question_not_found"
         )
         check_version(row, payload["expectedVersion"], "question_modified")
+        from cpm_back.services.cards.exam_training import delete_question_progress
+        delete_question_progress(db.cursor, exam_id, question_id)
         db.execute("DELETE FROM classic_exam_questions WHERE id=%s", (question_id,))
         bump_config(db, exam_id)
         return {}, {"questionId": question_id, "outcome": "deleted"}

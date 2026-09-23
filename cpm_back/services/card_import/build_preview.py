@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from .parse_excel import normalize_cell_text
+
 IMPORT_TYPE = "cards"
 
 WARNING_DUPLICATE_IN_FILE = "duplicate_in_file"
@@ -225,12 +227,14 @@ def build_preview_from_rows(
     for raw in raw_rows:
         row_no = int(raw.get("row"))
         preserved = preserved_by_row.get(row_no) or {}
-        question = str(
+        # Preview autosaves while typing: retain a trailing Enter so the next
+        # line can be entered. Outer whitespace is trimmed only at insertion.
+        question = normalize_cell_text(
             preserved.get("question")
             if preserved.get("question") is not None
             else raw.get("question") or ""
         )
-        answer = str(
+        answer = normalize_cell_text(
             preserved.get("answer")
             if preserved.get("answer") is not None
             else raw.get("answer") or ""

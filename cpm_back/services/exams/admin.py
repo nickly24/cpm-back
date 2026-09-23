@@ -70,6 +70,7 @@ def exam_dto(row, report=None):
         "createdAt": iso(row["created_at"]),
         "updatedAt": iso(row["updated_at"]),
         "version": row["version"],
+        "trainingEnabled": bool(row.get("training_enabled")) if row["exam_type"] == "classic" else False,
         "readiness": "not_applicable",
     }
     if row["exam_type"] == "classic":
@@ -176,6 +177,30 @@ def update_direction(db, exam, payload):
             bump_config(db, exam["id"])
         invalidate_rating(db)
     return get_exam(db, exam["id"])
+
+
+def training_summary(db, exam_id):
+    from cpm_back.services.cards.exam_training import load_bank
+
+    _, parts, cards = load_bank(db.cursor, exam_id, preview=True)
+    return {"exam": get_exam(db, exam_id), "parts_count": len(parts), "cards_count": len(cards)}
+
+
+def update_training(db, exam, payload):
+    from cpm_back.services.cards.exam_training import load_bank
+
+    fields(payload, ("enabled", "expectedVersion"), ("enabled", "expectedVersion"))
+    check_version(exam, payload["expectedVersion"], "exam_modified")
+    if type(payload["enabled"]) is not bool:
+        fail("invalid_training_enabled", "Доступность подготовки должна быть включена или выключена")
+    if payload["enabled"]:
+        _, _, cards = load_bank(db.cursor, exam["id"], preview=True)
+        if not exam.get("direction_id") or not cards:
+            fail("exam_empty", "Добавьте хотя бы один вопрос с эталонным ответом, чтобы открыть подготовку студентам", 422)
+    if bool(exam.get("training_enabled")) != payload["enabled"]:
+        db.update("exams", {"training_enabled": payload["enabled"], "version": exam["version"] + 1}, "id=%s", (exam["id"],))
+    # Training publication never changes the definition used by an examination.
+    return training_summary(db, exam["id"])
 
 
 def get_config_row(db, exam_id):

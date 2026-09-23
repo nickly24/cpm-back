@@ -24,8 +24,9 @@ from cpm_back.services.cards.training_progress import (
     mark_card_learned,
     progress_percent,
     put_study_settings,
-    unmark_card_learned,
+    unmark_card_learned as _unmark_card_learned,
 )
+from . import exam_training
 
 
 def _section_stats(cards_with_status):
@@ -128,7 +129,7 @@ def get_direction_sections(
         page = max(1, int(page or 1))
         limit = max(1, min(100, int(limit or 6)))
         search_value = (search or "").strip().lower()
-        kind_filter = kind if kind in ("all", "manual", "test") else "all"
+        kind_filter = kind if kind in ("all", "manual", "test", "exam") else "all"
         progress_filter = (
             progress if progress in ("all", "in_progress", "learned") else "all"
         )
@@ -166,6 +167,8 @@ def get_direction_sections(
             if node:
                 sections.append(node)
 
+        sections.extend(exam_training.catalog_nodes(cursor, student_id, direction_id))
+
         if kind_filter != "all":
             sections = [s for s in sections if s["kind"] == kind_filter]
 
@@ -188,6 +191,7 @@ def get_direction_sections(
                 for s in sections
                 if search_value in (s.get("name") or "").lower()
                 or search_value in (s.get("sourceTestTitle") or "").lower()
+                or search_value in (s.get("search_text") or "").lower()
             ]
 
         total = len(sections)
@@ -252,6 +256,9 @@ def get_training_tree(student_id):
 
         tree = []
         seen_direction_ids = set()
+        exams_by_direction = {}
+        for node in exam_training.catalog_nodes(cursor, student_id):
+            exams_by_direction.setdefault(node["direction_id"], []).append(node)
 
         for direction in directions:
             did = direction["id"]
@@ -266,6 +273,7 @@ def get_training_tree(student_id):
                 if node:
                     sections.append(node)
 
+            sections.extend(exams_by_direction.get(did, []))
             if not sections:
                 continue
 
@@ -346,6 +354,8 @@ def get_section_study_view(student_id, section_kind, section_ref_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
+        if section_kind == "exam":
+            return exam_training.study_view(cursor, student_id, section_ref_id)
         if section_kind == "manual":
             cursor.execute(
                 "SELECT id, name, direction_id FROM card_themes WHERE id = %s",
@@ -388,6 +398,8 @@ def get_section_study_view(student_id, section_kind, section_ref_id):
             "batches": batches,
             "settings": settings,
         }
+    except exam_training.TrainingError as exc:
+        return exc.response()
     except Exception as exc:
         return {"success": False, "error": str(exc)}
     finally:
@@ -430,12 +442,18 @@ def get_section_batch_cards(
 
 
 def update_section_study_settings(student_id, section_kind, section_ref_id, payload):
+    if section_kind == "exam":
+        return exam_training.save_settings(student_id, section_ref_id, payload)
     return put_study_settings(student_id, section_kind, section_ref_id, payload)
 
 
 def mark_section_card_learned(
     student_id, section_kind, section_ref_id, card_ref, fingerprint
 ):
+    if section_kind == "exam":
+        return exam_training.save_progress(student_id, section_ref_id, card_ref, fingerprint)
+    if str(card_ref).startswith("exam:"):
+        return {"success": False, "error": "Invalid section kind"}
     if section_kind == "test":
         from cpm_back.services.exam.test_definition_cache import get_test_document_cached
 
@@ -448,7 +466,17 @@ def mark_section_card_learned(
     )
 
 
-def get_admin_training_catalog():
+def unmark_card_learned(student_id, card_ref):
+    if str(card_ref).startswith("exam:"):
+        try:
+            exam_id, _ = exam_training.parse_exam_card_ref(card_ref)
+        except exam_training.TrainingError as exc:
+            return exc.response()
+        return exam_training.save_progress(student_id, str(exam_id), card_ref, remove=True)
+    return _unmark_card_learned(student_id, card_ref)
+
+
+def get_admin_training_catalog(include_exams=False):
     """Направления → manual- и test-разделы → счётчики карточек."""
     connection = None
     try:
@@ -489,8 +517,15 @@ def get_admin_training_catalog():
                 tests_by_direction.setdefault(direction_name, []).append(test_item)
 
         catalog = []
+        exams_by_direction = {}
+        for node in exam_training.catalog_nodes(cursor, None, admin=True) if include_exams else []:
+            exams_by_direction.setdefault(node["direction_id"], []).append({
+                **node, "id": node["exam_id"], "cards_count": node["total_cards"],
+                "visible": node["training_enabled"],
+            })
         for direction in directions:
             sections = list(themes_by_direction.get(direction["id"], []))
+            sections.extend(exams_by_direction.get(direction["id"], []))
             direction_name = normalize_direction_name(direction["name"])
             for test_item in tests_by_direction.get(direction_name, []):
                 test_id = str(test_item.get("id"))
