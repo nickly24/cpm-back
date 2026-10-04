@@ -1,9 +1,9 @@
 """Always-on exam regression tests: mocked boundaries, no DB/network/factory."""
 
 from contextlib import nullcontext
-import importlib.util
 import os
 from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 import uuid
@@ -70,17 +70,18 @@ class ExamAlwaysEnabledTests(unittest.TestCase):
         return response.json["data"]
 
     def test_config_no_longer_defines_rollout_flags_even_when_env_is_false(self):
-        # Load config independently, without reloading shared app modules.
-        location = Path(__file__).resolve().parents[1] / "cpm_back/config.py"
-        spec = importlib.util.spec_from_file_location(
-            "_exam_always_on_config_test", location
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # The isolated runner exposes source names without loading production
+        # defaults. Outside that runner, inspect the source without executing it.
+        from scripts.run_local_tests import config_attribute_names
+
+        module = sys.modules.get("cpm_back.config")
+        source_names = getattr(module, "_local_test_source_attribute_names", None)
+        if source_names is None:
+            location = Path(__file__).resolve().parents[1] / "cpm_back/config.py"
+            source_names = config_attribute_names(location.read_text())
         for name in REMOVED_FLAGS:
             with self.subTest(flag=name):
-                self.assertFalse(hasattr(module.Config, name))
-                self.assertFalse(hasattr(module.config, name))
+                self.assertNotIn(name, source_names)
 
     def test_admin_capabilities_ignore_all_false_flags(self):
         caps = self.capabilities({"id": 1, "role": "admin"})

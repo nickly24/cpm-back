@@ -53,6 +53,12 @@ class ClassicExamMySQLTests(unittest.TestCase):
         )
         self.pool_patch.start()
         self.addCleanup(self.pool_patch.stop)
+        # Student JWTs now recheck the existing account tables on every request.
+        account_patch = patch(
+            "cpm_back.services.student_deletion.common.get_db_connection", side_effect=self.connect
+        )
+        account_patch.start()
+        self.addCleanup(account_patch.stop)
         self.exam_ids = []
         self.users = []
         with self.connect() as conn:

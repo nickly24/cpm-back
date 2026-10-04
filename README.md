@@ -54,3 +54,16 @@ gunicorn -w 4 -b 0.0.0.0:80 "cpm_back:create_app()"
 - **Экзамены/тесты:** без префикса — `/directions`, `/tests/<direction>`, `/test/<test_id>`, `/create-test-session`, `/get-all-exams`, `/get-attendance`, `/external-tests/...`, `/get-all-ratings`, `/get-rating-details`, `/calculate-all-ratings`
 
 Корневой маршрут: `GET /` — проверка работы сервиса.
+
+## Удаление ученика со связанными данными
+
+Подтверждение показывает связанные данные ученика. Запрос принимает фоновую
+операцию в MongoDB, интерфейс отображает прогресс. SQL-данные удаляются одной
+транзакцией; Mongo и файлы очищаются отдельно с отчётом об остатках и повтором.
+Новые SQL-таблицы, триггеры и миграции для этого сценария не нужны.
+Подробный состав, API и ограничения:
+[docs/student-deletion/README.md](docs/student-deletion/README.md).
+
+Для изолированных тестов используйте `requirements-test.txt` и
+`python scripts/run_local_tests.py discover -s tests -v`; этот runner не загружает
+реальные значения подключения из `cpm_back/config.py`.

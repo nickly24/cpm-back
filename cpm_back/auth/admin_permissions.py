@@ -38,6 +38,8 @@ def rules(namespace, section, view='', edit=''):
 
 rules('students', 'users', 'group_filter list_students by_id', 'add edit')
 rules('users', 'users', 'by_role', 'delete add_staff edit_staff reset_staff')
+# Preview/status expose personal counts and are part of the destructive control plane.
+rules('student_deletion', 'users', '', 'preview collection detail retry')
 rules('groups', 'users', 'groups_students groups_overview group_members groups_search list_groups unsigned',
       'create_group update_group remove_group remove_student remove_proctor change_proctor change_student')
 rules('schools', 'schools', 'list_schools school_by_id school_filter unsigned_students', 'create_school update_school')

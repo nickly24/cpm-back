@@ -39,6 +39,9 @@ def verify_token(token):
             'full_name': payload.get('full_name'),
             'group_id': payload.get('group_id')
         }
+        if user['role'] == 'student':
+            from cpm_back.services.student_deletion.account import load_live_student
+            return load_live_student(user['id'])
         if user['role'] == 'staff_admin':
             version = payload.get('session_version')
             if type(version) is not int or version < 1:

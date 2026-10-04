@@ -1,0 +1,6 @@
+# Optional isolated MySQL/Mongo/S3 HTTP tests; never deployment dependencies.
+-r requirements-test.txt
+boto3==1.40.40
+moto[s3]==5.2.3
+requests==2.32.5
+pikepdf==10.10.0

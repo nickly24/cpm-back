@@ -2,6 +2,7 @@
 Единый бэкенд CPM: авторизация, cpm-serv, cpm-exam, прокси.
 """
 import logging
+import os
 import re
 import time
 import uuid
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 SENSITIVE_BODY_KEYS = {
     'password', 'token', 'bot_token', 'auth_token', 'authorization',
-    'answers', 'commits', 'snapshot', 'questions',
+    'answers', 'commits', 'snapshot', 'questions', 'confirmation_token',
 }
 
 
@@ -215,5 +216,9 @@ def create_app():
     app.register_blueprint(test_import_bp)
     app.register_blueprint(telegram_bot_bp)
     app.register_blueprint(test_drafts_bp)
+    from .blueprints.student_deletion_bp import student_deletion_bp
+    app.register_blueprint(student_deletion_bp)
+    from .services.student_deletion.jobs import start_worker
+    start_worker(app)
 
     return app
