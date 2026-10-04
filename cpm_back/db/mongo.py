@@ -26,4 +26,5 @@ def get_mongo_client():
 def get_mongo_db():
     if _config is None:
         raise RuntimeError("MongoDB not initialized.")
-    return _client[_config.MONGODB_DB_NAME]
+    from cpm_back.services.student_deletion.fence import GuardedMongoDatabase
+    return GuardedMongoDatabase(_client[_config.MONGODB_DB_NAME])

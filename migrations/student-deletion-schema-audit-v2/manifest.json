@@ -1,0 +1,153 @@
+{
+  "format_version": 2,
+  "user_sql_chunks": [
+    {
+      "file": "user-sql/000_preflight_read_only.part01.sql",
+      "characters": 73919,
+      "sha256": "600c8148c2d82197688c3928d83eaa7a628b9bd3922778682bb1a7a313a38252"
+    },
+    {
+      "file": "user-sql/000_preflight_read_only.part02.sql",
+      "characters": 60880,
+      "sha256": "018ce21c872c8a10d620114e18962479da54a769dbe42fce194d86a9bb9c909f"
+    },
+    {
+      "file": "user-sql/000_preflight_read_only.part03.sql",
+      "characters": 71837,
+      "sha256": "f0c6858a030df686189480200876877ecba1a571e1c68ec4963a39b5385c9bd2"
+    },
+    {
+      "file": "user-sql/000_preflight_read_only.part04.sql",
+      "characters": 73932,
+      "sha256": "037ae9012b7ec96a09d1ab2502ab3cd45565d5dc7f629d2a41864ab1d4cfdba9"
+    },
+    {
+      "file": "user-sql/000_preflight_read_only.part05.sql",
+      "characters": 20603,
+      "sha256": "4245016f877edc7b2176a4377888ec29271497eab7f3ab99ccceee578851378e"
+    },
+    {
+      "file": "user-sql/030_002_prepare.part01.sql",
+      "characters": 9768,
+      "sha256": "844ed19e60571135d929f691ae4856c129b3de00b8721f326cfcdf9da71752d6"
+    },
+    {
+      "file": "user-sql/031_activate_all_write_guards.part01.sql",
+      "characters": 72287,
+      "sha256": "9aa948303e546beec551434289bf24988be87834dbda09a0a7c67826fa9d0dd5"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part01.sql",
+      "characters": 59935,
+      "sha256": "7e6c44e709fc5e40ac8523d4cb1a87477534475afb709660c0039a7cf1a35354"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part02.sql",
+      "characters": 61444,
+      "sha256": "62fff221a95ddadf0cd96f4bd422d5ec0121a9838aa4b167646ef29d91f4f1d8"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part03.sql",
+      "characters": 71975,
+      "sha256": "b97d629aad6e7acb0cfe7dd7821f1a1430498ccd5e8ca5637e26b4fff418c71b"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part04.sql",
+      "characters": 56500,
+      "sha256": "8ece089fbf3bed413ede1c6018e82e9a4d1ec36cf920b61a64b6d400d2468115"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part05.sql",
+      "characters": 56643,
+      "sha256": "aff2a2945c8a1c20614a70bd8ba4bee54924002b3460adc9249ac0703e5467e9"
+    },
+    {
+      "file": "user-sql/032_verify_and_detect_drift.part06.sql",
+      "characters": 64536,
+      "sha256": "468cc6d9ca7c77fe69c74a32834a2a737b713ba3e51284fa7972cf2e9314ff94"
+    }
+  ],
+  "audit_reported_server_version": "8.0.22-13",
+  "baseline_counts": {
+    "tables": 79,
+    "columns": 579,
+    "foreign_key_column_rows": 66,
+    "indexes": 193,
+    "index_column_rows": 294,
+    "routines": 4
+  },
+  "generated_guarded_tables": [
+    "Allratings",
+    "attendance",
+    "auth_users",
+    "class_day_attendance",
+    "classic_exam_appeals",
+    "classic_exam_assignment_import_sessions",
+    "classic_exam_assignment_members",
+    "classic_exam_assignments",
+    "classic_exam_attempt_commands",
+    "classic_exam_attempt_members",
+    "classic_exam_attempt_part_progress",
+    "classic_exam_attempt_question_usage",
+    "classic_exam_attempts",
+    "classic_exam_presented_questions",
+    "classic_exam_student_privileges",
+    "classic_exam_vote_rounds",
+    "classic_exam_votes",
+    "exam_admin_commands",
+    "exam_sessions",
+    "homework_chat_admin_followers",
+    "homework_chat_messages",
+    "homework_chat_reads",
+    "homework_chat_threads",
+    "homework_file_jobs",
+    "homework_object_ownership",
+    "homework_realtime_outbox",
+    "homework_realtime_presence",
+    "homework_sessions",
+    "homework_submission_files",
+    "homework_submissions",
+    "notifications",
+    "outside_exam_result_import_sessions",
+    "push_subscriptions",
+    "rating_recalc_jobs",
+    "rating_recalc_staging",
+    "student_card_progress",
+    "student_credentials",
+    "student_progress",
+    "student_section_study_settings",
+    "students",
+    "telegram_bot_chats",
+    "test_sessions",
+    "user_import_job_results",
+    "user_import_jobs",
+    "user_import_sessions",
+    "zap_dates",
+    "zap_img",
+    "zaps"
+  ],
+  "generated_table_trigger_count": 97,
+  "source_sha256": {
+    "migrations/030_student_deletion_jobs.sql": "7f63cbdec23fac542b17a37e641371676b8be2a142f80a9ba791df88396c52ce",
+    "../cpm-homework-service/migrations/002_student_purges.sql": "887a3f7441267443fbd4b16832a2a57b8d69dfd379456ce058c60488f429aad1",
+    "migrations/031_student_deletion_write_barriers.sql": "7d531f01b2e99c17334b48805569922d662e16bea11ab0cf24c0da780e93ea1c",
+    "cpm_back/services/student_deletion/fence.py": "3aac002c578145aeed9f596a90b7feb0c130cec7eda3b456588f8173434ef0eb",
+    "scripts/generate_student_deletion_sql.py": "47b7754fada027a88206b3a67da17aa6808e06f8600bff203252b85cb497f6dc",
+    "cpm_back/services/student_deletion/file_consistency.py": "78c02466966c2206bbea9b946fef3f3be19c054ea3d96a6a3122d50a285a4f8b"
+  },
+  "audit_input_sha256": {
+    "REPORT_RU.txt": "f18bc1dfa8d3d4c4aa21631de9672cf265fa2a7895c7cc6c94b7dc1e22a6d8f6",
+    "SHA256.json": "9b129e303c6d79c362b3de29aadbc4fabfa9cf17602bee0fc9e07d745788e95d",
+    "cross-schema-foreign-keys.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "history/014_homework_submissions.sql": "ecec784f03c0e200c83fe4dcae71fee0ea63645d21c47c83769fb29f00435f03",
+    "history/cascade.py": "a38ac14f7f89ad7af7922590d718cfc25f29f2fb6149509ec4793698e2f6b3cd",
+    "history/homework_chat_bp.py": "d9bf6388afdc738b8865ef59b5bef8c365a9fcf8c8e7b5d093b6f5c97b9676e6",
+    "history/push.py": "415e68e8494a35cec0deb1853d29b363c7d439f63798523e4643ed648650fc90",
+    "history/realtime.py": "d6b6d12d713442bf58c045c9f075fdab6421ad96f852cb5c13c1283120a16ee0",
+    "history/workflow.py": "1915a21defe1206a8d294c03e65970f439a2cf1b3f91aed858d4bdd6b525e29d",
+    "metadata-visibility.json": "2a096fdcd6a7b10faa88ec838271bf0334b3c14d6a4b64656f12774c4eaacfd6",
+    "schema-ddl.sql": "e32fcbae66f44fdf0104f24753a657125413f2cb929b6f910c81da171d2e3250",
+    "schema-metadata.json": "492c57bece58f10bb8ca2e78ec2fe59abd629371ddb603ce6eb006af8bb8be4c"
+  },
+  "execution_boundary": "Supplied table DDL only after restricted shape validation; supplied history and existing routines never executed. No database credentials or application configuration loaded."
+}

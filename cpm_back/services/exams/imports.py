@@ -471,7 +471,47 @@ def stored_rows(rows):
     return [{key: row[key] for key in keys if key in row} for row in rows]
 
 
+def _assert_preview_student_writes(db, rows):
+    """Fresh producer ownership, including excluded/error rows, before storage.
+
+    A login is looked up in the current student account namespace. It is never
+    used to infer historical ownership for erasure. The guard singleton is held
+    through the existing transaction, closing check/write versus barrier races.
+    """
+    identifiers, logins = set(), set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        resolved = row.get("resolved") or {}
+        student = resolved.get("student") if isinstance(resolved, dict) else None
+        if isinstance(student, dict) and type(student.get("id")) is int:
+            identifiers.add(student["id"])
+        values = row.get("input") or {}
+        login = values.get("studentLogin") if isinstance(values, dict) else None
+        if type(login) in (int, float):
+            login = str(login)
+        if isinstance(login, str) and login.strip():
+            logins.add(login.strip())
+    if not identifiers and not logins:
+        return
+    from cpm_back.services.student_deletion.fence import protection_active
+    if not protection_active(db.connection):
+        return
+    guard = db.one("SELECT schema_version FROM student_deletion_guard_state WHERE id=1 LOCK IN SHARE MODE")
+    if not guard or guard["schema_version"] != 1:
+        fail("student_write_guard_unavailable", "Защита удаления временно недоступна", 503)
+    for login in sorted(logins):
+        account = db.one("SELECT ref_id FROM auth_users WHERE role='student' AND username=%s LOCK IN SHARE MODE", (login,))
+        if account:
+            identifiers.add(account["ref_id"])
+    for identifier in sorted(identifiers):
+        if db.one("SELECT student_id FROM student_deletion_barriers WHERE student_id=%s LOCK IN SHARE MODE", (identifier,)):
+            fail("student_deletion_pending", "Нельзя сохранять превью для удаляемого ученика", 409)
+
+
 def payload_json(db, rows):
+    # Outside validate_rows' per-row ExamError capture: reject the whole write.
+    _assert_preview_student_writes(db, rows)
     value = dumps(stored_rows(rows))
     # Fail clearly before the driver/server connection is killed by packet limits.
     packet = db.scalar("SELECT @@max_allowed_packet")

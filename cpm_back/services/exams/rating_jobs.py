@@ -1,6 +1,8 @@
 """Existing manual rating jobs, staged publication and cross-worker leases."""
 
 from datetime import timedelta
+from cpm_back.services.student_deletion.fence import fenced_mutation, mutation_fence, StudentFenceUnavailable
+
 import threading
 import uuid
 
@@ -117,6 +119,7 @@ def fail_job(job_id, token, code):
             db.update("rating_source_state", {"active_job_id": None}, "id=1", ())
 
 
+@fenced_mutation
 def publish(job, snapshot):
     job_id, token = job["id"], job["worker_token"]
     with transaction(write=True) as db:
@@ -188,7 +191,7 @@ def publish(job, snapshot):
         db.execute("DELETE FROM rating_recalc_staging WHERE job_id=%s", (job_id,))
 
 
-def run(job_id):
+def _run(job_id):
     job = claim(job_id)
     if not job:
         return
@@ -296,6 +299,29 @@ def run(job_id):
             from cpm_back.db.mysql_pool import close_db_connection
 
             close_db_connection(connection)
+
+
+
+def _fail_unclaimed_job(job_id):
+    """Fence acquisition failed before claim; never overwrite another worker."""
+    with transaction(write=True) as db:
+        state = db.one("SELECT * FROM rating_source_state WHERE id=1 FOR UPDATE")
+        db.execute(
+            """UPDATE rating_recalc_jobs SET status='failed',failed=1,completed_at=%s,message=%s
+            WHERE id=%s AND status='queued'""",
+            (now(), 'student_write_fence_unavailable_retry', job_id),
+        )
+        if db.cursor.rowcount and state and state['active_job_id'] == job_id:
+            db.update('rating_source_state', {'active_job_id': None}, 'id=1', ())
+
+
+def run(job_id):
+    try:
+        with mutation_fence():
+            return _run(job_id)
+    except StudentFenceUnavailable:
+        # Keep durable polling accurate even when the worker cannot start.
+        _fail_unclaimed_job(job_id)
 
 
 def iso_utc(value):

@@ -1,6 +1,8 @@
 """
 Журнал и фоновый запуск пересчёта рейтингов.
 """
+from cpm_back.services.student_deletion.fence import mutation_fence, StudentFenceUnavailable
+
 import json
 import threading
 from datetime import datetime
@@ -257,7 +259,7 @@ def _make_progress_callback(job_id: int):
     return callback
 
 
-def _run_recalc_job(job_id: int) -> None:
+def _run_recalc_job_work(job_id: int) -> None:
     global _active_recalc_job_id
     mysql_conn = None
     try:
@@ -321,6 +323,22 @@ def _run_recalc_job(job_id: int) -> None:
     finally:
         if mysql_conn:
             close_db_connection(mysql_conn)
+        with _recalc_thread_lock:
+            if _active_recalc_job_id == job_id:
+                _active_recalc_job_id = None
+
+
+def _run_recalc_job(job_id: int) -> None:
+    global _active_recalc_job_id
+    try:
+        with mutation_fence():
+            _run_recalc_job_work(job_id)
+    except StudentFenceUnavailable:
+        # No personal payloads are persisted when a fence cannot be acquired.
+        # The terminal failure is retryable by starting a fresh job.
+        _update_job(job_id, status='failed', completed_at=datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                    message='student_write_fence_unavailable_retry', failed=1)
+    finally:
         with _recalc_thread_lock:
             if _active_recalc_job_id == job_id:
                 _active_recalc_job_id = None

@@ -54,3 +54,15 @@ gunicorn -w 4 -b 0.0.0.0:80 "cpm_back:create_app()"
 - **Экзамены/тесты:** без префикса — `/directions`, `/tests/<direction>`, `/test/<test_id>`, `/create-test-session`, `/get-all-exams`, `/get-attendance`, `/external-tests/...`, `/get-all-ratings`, `/get-rating-details`, `/calculate-all-ratings`
 
 Корневой маршрут: `GET /` — проверка работы сервиса.
+
+## Удаление ученика со связанными данными
+
+Добавлен отдельный подтверждаемый сценарий с durable job, предварительным
+расчётом, отзывом доступа, межсервисной блокировкой записи и проверкой результата.
+Новые операции по умолчанию выключены. Подробный состав, API, порядок миграций,
+согласование с файловым сервисом и ограничения проверок:
+[docs/student-deletion/README.md](docs/student-deletion/README.md).
+
+Для изолированных тестов используйте `requirements-test.txt` и
+`python scripts/run_local_tests.py discover -s tests -v`; этот runner не загружает
+реальные значения подключения из `cpm_back/config.py`.

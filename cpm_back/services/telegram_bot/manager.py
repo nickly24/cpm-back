@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from cpm_back.services.student_deletion.fence import fenced_mutation
+
 import json
 import threading
 import time
@@ -422,6 +424,7 @@ def _handle_credentials(token: str, settings: Dict[str, Any], chat_id: int) -> N
             close_db_connection(conn)
 
 
+@fenced_mutation
 def _handle_update(token: str, settings: Dict[str, Any], update: Dict[str, Any]) -> None:
     message = update.get("message") or update.get("edited_message") or {}
     chat = message.get("chat") or {}

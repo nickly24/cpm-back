@@ -1,6 +1,10 @@
 from cpm_back.db.mysql_pool import get_db_connection, close_db_connection
 
 def delete_user(role, user_id):
+    # Old clients must never bypass the preview + durable deletion workflow.
+    if role == 'student':
+        return {"status": False, "error": "Используйте подтверждённое удаление ученика и его данных.",
+                "code": "student_deletion_workflow_required", "http_status": 409}
     connection = None
     try:
         connection = get_db_connection()

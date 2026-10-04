@@ -48,6 +48,10 @@ def auth(username, password):
             from cpm_back.services.admin_access import load_staff_admin
             delegated = load_staff_admin(user_row.get('ref_id'))
             return {'status': bool(delegated), 'res': delegated} if delegated else {'status': False}
+        if role == 'student':
+            from cpm_back.services.student_deletion.fence import load_live_student
+            student = load_live_student(user_row.get('ref_id'))
+            return {'status': True, 'res': student} if student else {'status': False}
         table = ROLE_TABLES.get(role)
         if not table:
             return {'status': False}

@@ -39,7 +39,7 @@ def _cutoff(value):
     return value
 
 
-def sweep_expired(
+def _sweep_expired(
     connection,
     *,
     batch_size=100,
@@ -79,6 +79,10 @@ def sweep_expired(
         db.execute("SET SESSION innodb_lock_wait_timeout=2")
         db.execute("SET SESSION MAX_EXECUTION_TIME=5000")
         schema = str(db.scalar("SELECT DATABASE()", default=""))
+        protected_receipt_filter = ""
+        if db.scalar("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_deletion_jobs'"):
+            protected_receipt_filter = " AND NOT EXISTS (SELECT 1 FROM student_deletion_jobs sdj WHERE JSON_CONTAINS(JSON_EXTRACT(sdj.manifest_json,'$.command_ids'),CAST(exam_admin_commands.id AS JSON)))"
+        connection.rollback()
         lock_name = "exam-retention:" + hashlib.sha256(schema.encode()).hexdigest()[:32]
         if dry_run:
             connection.start_transaction(
@@ -86,7 +90,7 @@ def sweep_expired(
             )
             result["expired"] = {
                 table: db.scalar(
-                    f"SELECT COUNT(*) FROM {table} WHERE expires_at<=%s", (cutoff,)
+                    f"SELECT COUNT(*) FROM {table} WHERE expires_at<=%s" + (protected_receipt_filter if table == RECEIPT_TABLE else ""), (cutoff,)
                 )
                 for table in IMPORT_TABLES + (RECEIPT_TABLE,)
             }
@@ -156,8 +160,8 @@ def sweep_expired(
         while budget_available():
             connection.start_transaction(isolation_level="READ COMMITTED")
             selected = db.all(
-                f"""SELECT id FROM {RECEIPT_TABLE} WHERE expires_at<=%s
-                ORDER BY expires_at,id LIMIT %s FOR UPDATE SKIP LOCKED""",
+                f"SELECT id FROM {RECEIPT_TABLE} WHERE expires_at<=%s" + protected_receipt_filter +
+                " ORDER BY expires_at,id LIMIT %s FOR UPDATE SKIP LOCKED",
                 (cutoff, batch_size),
             )
             if not selected:
@@ -166,7 +170,7 @@ def sweep_expired(
             result["batches"] += 1
             ids = [row["id"] for row in selected]
             db.execute(
-                f"DELETE FROM {RECEIPT_TABLE} WHERE expires_at<=%s AND id IN ("
+                f"DELETE FROM {RECEIPT_TABLE} WHERE expires_at<=%s" + protected_receipt_filter + " AND id IN ("
                 + ",".join(["%s"] * len(ids))
                 + ")",
                 [cutoff] + ids,
@@ -182,6 +186,18 @@ def sweep_expired(
         if acquired:
             db.scalar("SELECT RELEASE_LOCK(%s)", (lock_name,))
         db.cursor.close()
+
+
+def sweep_expired(connection, **kwargs):
+    """Fence receipt expiry against barrier+manifest capture; preserve erasure receipts."""
+    from cpm_back.services.student_deletion.fence import mutation_fence, protection_active
+    connection.rollback()
+    if not protection_active(connection):
+        connection.rollback()
+        return _sweep_expired(connection, **kwargs)
+    connection.rollback()
+    with mutation_fence(connection=connection):
+        return _sweep_expired(connection, **kwargs)
 
 
 def start_retention_worker(

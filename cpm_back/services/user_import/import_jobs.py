@@ -1,6 +1,8 @@
 """Журнал и фоновый запуск импорта пользователей."""
 from __future__ import annotations
 
+from cpm_back.services.student_deletion.fence import mutation_fence, StudentFenceUnavailable
+
 import json
 import threading
 from datetime import datetime
@@ -344,7 +346,7 @@ def _make_progress_callback(job_id: int):
     return callback
 
 
-def _run_import_job(job_id: int) -> None:
+def _run_import_job_work(job_id: int) -> None:
     global _active_import_job_id
 
     try:
@@ -379,6 +381,22 @@ def _run_import_job(job_id: int) -> None:
             from .import_runner import run_users_import
 
             run_users_import(job_id, progress_callback=_make_progress_callback(job_id))
+    finally:
+        with _import_thread_lock:
+            if _active_import_job_id == job_id:
+                _active_import_job_id = None
+
+
+def _run_import_job(job_id: int) -> None:
+    global _active_import_job_id
+    try:
+        with mutation_fence():
+            _run_import_job_work(job_id)
+    except StudentFenceUnavailable:
+        # No personal payloads are persisted when a fence cannot be acquired.
+        # The terminal failure is retryable by starting a fresh job.
+        _update_job(job_id, status='failed', completed_at=datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                    message='student_write_fence_unavailable_retry', failed=1)
     finally:
         with _import_thread_lock:
             if _active_import_job_id == job_id:

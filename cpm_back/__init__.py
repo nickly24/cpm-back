@@ -2,6 +2,7 @@
 Единый бэкенд CPM: авторизация, cpm-serv, cpm-exam, прокси.
 """
 import logging
+import os
 import re
 import time
 import uuid
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 SENSITIVE_BODY_KEYS = {
     'password', 'token', 'bot_token', 'auth_token', 'authorization',
-    'answers', 'commits', 'snapshot', 'questions',
+    'answers', 'commits', 'snapshot', 'questions', 'confirmation_token',
 }
 
 
@@ -75,6 +76,9 @@ def _safe_request_body():
 
 def create_app():
     app = Flask(__name__)
+    app.config['STUDENT_DELETION_ENABLED'] = os.getenv('STUDENT_DELETION_ENABLED', '').lower() in {'1', 'true', 'yes'}
+    from .services.student_deletion.fence import register_request_hooks
+    register_request_hooks(app)
     from .auth.admin_permissions import enforce_admin_permissions, redact_directory_response
     app.before_request(enforce_admin_permissions)
     app.after_request(redact_directory_response)
@@ -215,5 +219,9 @@ def create_app():
     app.register_blueprint(test_import_bp)
     app.register_blueprint(telegram_bot_bp)
     app.register_blueprint(test_drafts_bp)
+    from .blueprints.student_deletion_bp import student_deletion_bp
+    app.register_blueprint(student_deletion_bp)
+    from .services.student_deletion.jobs import start_worker
+    start_worker(app)
 
     return app

@@ -361,6 +361,8 @@ def reserve_admin_command(db, actor, payload, exam_id=None):
                 "Создайте новое действие после обновления страницы",
                 409,
             )
+        if row.get("tombstone"):
+            fail("removed_target", "История этого действия была удалена", 404)
         return row, True
 
     row = db.one(lookup, lookup_params)
